@@ -81,8 +81,8 @@ values = "fixed"           # fixed: every value keeps room for its widest normal
 # Metrics:
 #   fps, frametime, fps.low1, fps.low01          (needs Delta to run as administrator)
 #   gpu.usage, gpu.temp, gpu.clock, gpu.mem_clock, gpu.power, gpu.fan, gpu.vram, gpu.vram_pct
-#   cpu.usage, cpu.clock, cpu.cores (per-core bars), cpu.core.N (one core), cpu.core_clock.N
-#   ram.used, ram.pct, app.ram
+#   cpu.usage, cpu.clock, cpu.temp, cpu.cores (per-core bars), cpu.core.N (one core), cpu.core_clock.N
+#   ram.used, ram.total, ram.pct, app.ram
 #   disk.read, disk.write, disk.active, net.down, net.up
 #   app (foreground app name), time
 # ---------------------------------------------------------------------------------------------

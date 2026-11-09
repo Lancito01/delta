@@ -71,6 +71,7 @@ fn run(shared: Arc<Mutex<Sample>>, poll: Arc<AtomicU32>, hist: Arc<AtomicU32>, g
             let r = c.read();
             put("cpu.usage", r.cpu_total);
             put("cpu.clock", r.cpu_clock);
+            put("cpu.temp", r.cpu_temp);
             put("disk.read", r.disk_read);
             put("disk.write", r.disk_write);
             put("disk.active", r.disk_active);
@@ -151,8 +152,10 @@ pub const CATALOG: &[(&str, &str, &str, &str)] = &[
     ("gpu.vram_pct", "VRAM %", "Graphics card", "Video memory in use, in percent"),
     ("cpu.usage", "CPU usage", "Processor", "Total processor load"),
     ("cpu.clock", "CPU clock", "Processor", "Average effective clock speed"),
+    ("cpu.temp", "CPU temperature", "Processor", "Average of temperatures reported by Windows thermal zones"),
     ("cpu.cores", "Per-core load", "Processor", "A small bar for every core"),
     ("ram.used", "RAM used", "Memory", "System memory in use"),
+    ("ram.total", "RAM total", "Memory", "Total physical system memory"),
     ("ram.pct", "RAM %", "Memory", "System memory in use, in percent"),
     ("app.ram", "App memory", "Memory", "Memory used by the app in front"),
     ("disk.read", "Disk read", "Disk & network", "Bytes read per second, all disks"),
@@ -169,10 +172,10 @@ pub fn display_name(id: &str) -> String {
         return n.to_string();
     }
     if let Some(n) = id.strip_prefix("cpu.core.") {
-        return format!("Core {n}");
+        return n.parse::<usize>().map_or_else(|_| format!("Core {n} load"), |n| format!("Core {} load", n + 1));
     }
     if let Some(n) = id.strip_prefix("cpu.core_clock.") {
-        return format!("Core {n} clock");
+        return n.parse::<usize>().map_or_else(|_| format!("Core {n} clock"), |n| format!("Core {} clock", n + 1));
     }
     id.to_string()
 }

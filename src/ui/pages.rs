@@ -342,6 +342,8 @@ fn metrics_page(ui: &mut Ui, cx: &mut Ctx) {
             let (add, _) = ui.button(idn("chip-add", i), Some(icon::ADD), "Add", ButtonKind::Subtle, x, y - 1.0);
             if add {
                 cx.ps.modal_row = i;
+                ui.st.modal_scroll = 0.0;
+                ui.st.modal_scroll_target = 0.0;
                 ui.st.modal = Some(MODAL_METRICS);
             }
             if has_graph {
@@ -377,6 +379,8 @@ fn metrics_page(ui: &mut Ui, cx: &mut Ctx) {
     if add {
         cx.cfg.rows.push(Row { label: "New".into(), metrics: vec![], ..Default::default() });
         cx.ps.modal_row = cx.cfg.rows.len() - 1;
+        ui.st.modal_scroll = 0.0;
+        ui.st.modal_scroll_target = 0.0;
         ui.st.modal = Some(MODAL_METRICS);
         cx.changed = true;
     }
@@ -427,13 +431,82 @@ fn metric_picker(ui: &mut Ui, cx: &mut Ctx) {
         ui.st.modal = None;
         return;
     };
-    let mut y = r.y;
+    let mut entries: Vec<(String, String, String, String)> = Vec::new();
+    let core_count = cx.frame.cores.len().max(
+        cx.frame
+            .values
+            .keys()
+            .filter_map(|key| {
+                key.strip_prefix("cpu.core.")
+                    .or_else(|| key.strip_prefix("cpu.core_clock."))
+                    .and_then(|n| n.parse::<usize>().ok())
+            })
+            .max()
+            .map_or(0, |n| n + 1),
+    );
+    for (mid, name, category, desc) in metrics::CATALOG {
+        entries.push((mid.to_string(), name.to_string(), category.to_string(), desc.to_string()));
+        if *mid == "cpu.cores" {
+            for core in 0..core_count {
+                let load = format!("cpu.core.{core}");
+                if cx.frame.values.contains_key(&load) {
+                    entries.push((load, format!("Core {} load", core + 1), "Processor".into(), "Load of this logical processor".into()));
+                }
+                let clock = format!("cpu.core_clock.{core}");
+                if cx.frame.values.contains_key(&clock) {
+                    entries.push((clock, format!("Core {} clock", core + 1), "Processor".into(), "Effective clock speed of this logical processor".into()));
+                }
+            }
+        }
+    }
+
+    // Measure the full list so the sheet can scroll even when its content is taller than the window.
+    let mut content_h = 0.0;
+    let mut measured_cat = "";
+    let mut measured_col = 0;
+    for (_, _, category, _) in &entries {
+        if category != measured_cat {
+            if measured_col == 1 {
+                content_h += 58.0;
+            }
+            measured_col = 0;
+            if !measured_cat.is_empty() {
+                content_h += 8.0;
+            }
+            measured_cat = category;
+            content_h += 22.0;
+        }
+        measured_col += 1;
+        if measured_col == 2 {
+            measured_col = 0;
+            content_h += 58.0;
+        }
+    }
+    if measured_col == 1 {
+        content_h += 58.0;
+    }
+    if r.contains(ui.inp.mouse) {
+        ui.st.modal_scroll_target -= ui.inp.wheel * 0.35;
+    }
+    let max_scroll = (content_h - r.h).max(0.0);
+    ui.st.modal_scroll_target = ui.st.modal_scroll_target.clamp(0.0, max_scroll);
+    let d = ui.st.modal_scroll_target - ui.st.modal_scroll;
+    if d.abs() > 0.5 {
+        ui.st.modal_scroll += d * (1.0 - (-18.0 * ui.st.dt).exp());
+        ui.st.animating = true;
+    } else {
+        ui.st.modal_scroll = ui.st.modal_scroll_target;
+    }
+    let mut y = r.y - ui.st.modal_scroll;
     let col_w = (r.w - 12.0) / 2.0;
     let mut cat = "";
     let mut i = 0;
     let mut col = 0;
-    for (mid, name, category, desc) in metrics::CATALOG {
-        if *category != cat {
+    let old_clip = ui.clip;
+    ui.clip = Some(r);
+    ui.push_clip(r);
+    for (mid, name, category, desc) in &entries {
+        if category != cat {
             if col == 1 {
                 y += 58.0;
             }
@@ -473,6 +546,8 @@ fn metric_picker(ui: &mut Ui, cx: &mut Ctx) {
             y += 58.0;
         }
     }
+    ui.pop_clip();
+    ui.clip = old_clip;
 }
 
 // ---------------------------------------------------------------- Appearance

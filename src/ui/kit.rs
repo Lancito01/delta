@@ -149,12 +149,14 @@ pub struct State {
     pub edit: String,
     pub scroll: f32,
     pub scroll_target: f32,
+    pub modal_scroll: f32,
+    pub modal_scroll_target: f32,
     pub content_h: f32,
     pub view_h: f32,
     pub hand: bool,
     pub animating: bool,
     last: Instant,
-    dt: f32,
+    pub(crate) dt: f32,
     swallow: bool,
     caret: Instant,
 }
@@ -172,6 +174,8 @@ impl Default for State {
             edit: String::new(),
             scroll: 0.0,
             scroll_target: 0.0,
+            modal_scroll: 0.0,
+            modal_scroll_target: 0.0,
             content_h: 0.0,
             view_h: 0.0,
             hand: false,
@@ -559,8 +563,10 @@ impl<'a> Ui<'a> {
             x += w;
         }
         let sel = (*value).min(options.len().saturating_sub(1));
-        let ax = self.anim(id ^ 7, xs[sel], 20.0);
-        let aw = self.anim(id ^ 9, widths[sel], 20.0);
+        // These are layout coordinates, so animating them from the previous frame makes the
+        // selection slide across the control when the window is resized.
+        let ax = xs[sel];
+        let aw = widths[sel];
         self.fill(Rect::new(ax, r.y + pad, aw, h - pad * 2.0), pal::ACCENT_SOFT, 4.0);
         self.fill(Rect::new(ax + aw / 2.0 - 8.0, r.bottom() - pad - 3.0, 16.0, 2.5), pal::ACCENT, 1.25);
         for (i, o) in options.iter().enumerate() {
@@ -635,7 +641,8 @@ impl<'a> Ui<'a> {
             }
         }
         let t = ((*value - min) / (max - min)).clamp(0.0, 1.0);
-        let at = self.anim(id ^ 3, t, 30.0);
+        // Keep the thumb anchored to the actual value when the track changes size.
+        let at = t;
         let label = label(*value);
         let (lw, _) = self.measure(Font::Body, &label);
         self.text_mid(Font::Body, &label, track.x - lw - 16.0, area, pal::DIM);
