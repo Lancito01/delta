@@ -345,10 +345,13 @@ fn metrics_page(ui: &mut Ui, cx: &mut Ctx) {
             let widths: Vec<f32> = row.metrics.iter().map(|m| ui.measure(Font::Body, &metrics::display_name(m)).0 + 48.0).collect();
             let (targets, _, _) = metric_chip_layout(&widths, left, right, top);
             let mut visuals = Vec::with_capacity(row.metrics.len());
+            let animate_chips = ui.st.metric_drag.is_some_and(|(row_index, _)| row_index == i) || ui.st.metric_reorder == Some(i);
             for (j, metric) in row.metrics.iter().enumerate() {
                 let target = targets[j];
-                let x = ui.anim(id(&format!("metric-chip-x{i}-{metric}")), target.x, 18.0);
-                let y = ui.anim(id(&format!("metric-chip-y{i}-{metric}")), target.y, 18.0);
+                let x_id = id(&format!("metric-chip-x{i}-{metric}"));
+                let y_id = id(&format!("metric-chip-y{i}-{metric}"));
+                let x = if animate_chips { ui.anim(x_id, target.x, 18.0) } else { ui.snap_anim(x_id, target.x) };
+                let y = if animate_chips { ui.anim(y_id, target.y, 18.0) } else { ui.snap_anim(y_id, target.y) };
                 visuals.push((metric.clone(), Rect::new(x, y, target.w, target.h)));
             }
             let mut started_drag = false;
@@ -372,6 +375,7 @@ fn metrics_page(ui: &mut Ui, cx: &mut Ctx) {
                             let metric = row.metrics.remove(source);
                             row.metrics.insert(destination.min(row.metrics.len()), metric);
                             ui.st.metric_drag = Some((i, destination));
+                            ui.st.metric_reorder = Some(i);
                             cx.changed = true;
                         }
                     }
@@ -382,13 +386,20 @@ fn metrics_page(ui: &mut Ui, cx: &mut Ctx) {
             }
 
             let dragging = ui.st.metric_drag.is_some_and(|(row_index, _)| row_index == i);
+            let animate_chips = dragging || ui.st.metric_reorder == Some(i);
             let widths: Vec<f32> = row.metrics.iter().map(|m| ui.measure(Font::Body, &metrics::display_name(m)).0 + 48.0).collect();
             let (targets, mut x, mut y) = metric_chip_layout(&widths, left, right, top);
             let mut drop_metric = None;
+            let mut settled = true;
             for (j, metric) in row.metrics.iter().enumerate() {
                 let target = targets[j];
-                let current_x = ui.anim(id(&format!("metric-chip-x{i}-{metric}")), target.x, 18.0);
-                let current_y = ui.anim(id(&format!("metric-chip-y{i}-{metric}")), target.y, 18.0);
+                let x_id = id(&format!("metric-chip-x{i}-{metric}"));
+                let y_id = id(&format!("metric-chip-y{i}-{metric}"));
+                let current_x = if animate_chips { ui.anim(x_id, target.x, 18.0) } else { ui.snap_anim(x_id, target.x) };
+                let current_y = if animate_chips { ui.anim(y_id, target.y, 18.0) } else { ui.snap_anim(y_id, target.y) };
+                if animate_chips && ((current_x - target.x).abs() > 0.5 || (current_y - target.y).abs() > 0.5) {
+                    settled = false;
+                }
                 let rect = Rect::new(current_x, current_y, target.w, target.h);
                 let c = group_color_static(cx.themes, &cx.cfg.theme, metric);
                 if dragging {
@@ -404,6 +415,9 @@ fn metrics_page(ui: &mut Ui, cx: &mut Ctx) {
                         drop_metric = Some(j);
                     }
                 }
+            }
+            if ui.st.metric_reorder == Some(i) && !dragging && settled {
+                ui.st.metric_reorder = None;
             }
             if !dragging {
                 if let Some(j) = drop_metric.take() {
@@ -462,10 +476,14 @@ fn metrics_page(ui: &mut Ui, cx: &mut Ctx) {
     }
     if let Some((a, b)) = swap {
         cx.cfg.rows.swap(a, b);
+        ui.st.metric_drag = None;
+        ui.st.metric_reorder = None;
         cx.changed = true;
     }
     if let Some(i) = remove {
         cx.cfg.rows.remove(i);
+        ui.st.metric_drag = None;
+        ui.st.metric_reorder = None;
         cx.changed = true;
     }
     ui.y += 8.0;

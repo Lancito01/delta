@@ -156,6 +156,8 @@ pub struct State {
     pub hand: bool,
     /// (row index, metric index) for a metric pill being dragged.
     pub metric_drag: Option<(usize, usize)>,
+    /// Row whose pills are finishing a reorder animation.
+    pub metric_reorder: Option<usize>,
     pub animating: bool,
     last: Instant,
     pub(crate) dt: f32,
@@ -182,6 +184,7 @@ impl Default for State {
             view_h: 0.0,
             hand: false,
             metric_drag: None,
+            metric_reorder: None,
             animating: false,
             last: Instant::now(),
             dt: 0.016,
@@ -427,6 +430,12 @@ impl<'a> Ui<'a> {
             *v = target;
         }
         *v
+    }
+
+    /// Places an animation at its target without easing, for layouts that should track scrolling.
+    pub fn snap_anim(&mut self, id: u64, target: f32) -> f32 {
+        self.st.anims.insert(id, target);
+        target
     }
 
     fn mouse_ok(&self, r: Rect) -> bool {
