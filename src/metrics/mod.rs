@@ -71,7 +71,6 @@ fn run(shared: Arc<Mutex<Sample>>, poll: Arc<AtomicU32>, hist: Arc<AtomicU32>, g
             let r = c.read();
             put("cpu.usage", r.cpu_total);
             put("cpu.clock", r.cpu_clock);
-            put("cpu.temp", r.cpu_temp);
             put("disk.read", r.disk_read);
             put("disk.write", r.disk_write);
             put("disk.active", r.disk_active);
@@ -152,7 +151,6 @@ pub const CATALOG: &[(&str, &str, &str, &str)] = &[
     ("gpu.vram_pct", "VRAM %", "Graphics card", "Video memory in use, in percent"),
     ("cpu.usage", "CPU usage", "Processor", "Total processor load"),
     ("cpu.clock", "CPU clock", "Processor", "Average effective clock speed"),
-    ("cpu.temp", "CPU temperature", "Processor", "Average of temperatures reported by Windows thermal zones"),
     ("cpu.cores", "Per-core load", "Processor", "A small bar for every core"),
     ("ram.used", "RAM used", "Memory", "System memory in use"),
     ("ram.total", "RAM total", "Memory", "Total physical system memory"),

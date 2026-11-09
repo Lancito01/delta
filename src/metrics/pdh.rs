@@ -90,8 +90,6 @@ pub struct Counters {
     cpu_util: Option<Counter>,
     cpu_perf: Option<Counter>,
     cpu_freq: Option<Counter>,
-    thermal_zones: Option<Counter>,
-    thermal_zones_precise: Option<Counter>,
     disk_read: Option<Counter>,
     disk_write: Option<Counter>,
     disk_idle: Option<Counter>,
@@ -107,7 +105,6 @@ pub struct Readings {
     pub cores: Vec<f64>,
     pub core_clocks: Vec<f64>,
     pub cpu_clock: Option<f64>,
-    pub cpu_temp: Option<f64>,
     pub disk_read: Option<f64>,
     pub disk_write: Option<f64>,
     pub disk_active: Option<f64>,
@@ -126,8 +123,6 @@ impl Counters {
             cpu_util: query.add(r"\Processor Information(*)\% Processor Utility"),
             cpu_perf: query.add(r"\Processor Information(*)\% Processor Performance"),
             cpu_freq: query.add(r"\Processor Information(_Total)\Processor Frequency"),
-            thermal_zones: query.add(r"\Thermal Zone Information(*)\Temperature"),
-            thermal_zones_precise: query.add(r"\Thermal Zone Information(*)\High Precision Temperature"),
             disk_read: query.add(r"\PhysicalDisk(_Total)\Disk Read Bytes/sec"),
             disk_write: query.add(r"\PhysicalDisk(_Total)\Disk Write Bytes/sec"),
             disk_idle: query.add(r"\PhysicalDisk(_Total)\% Idle Time"),
@@ -156,23 +151,6 @@ impl Counters {
             r.cpu_clock = all.iter().find(|(n, _)| n == "_Total").map(|(_, p)| base * p / 100.0);
             r.core_clocks = per_core(&all).into_iter().map(|p| base * p / 100.0).collect();
         }
-        let precise_temps = self.thermal_zones_precise.as_ref().map(Counter::array).unwrap_or_default();
-        let values: Vec<f64> = if !precise_temps.is_empty() {
-            // The optional high-precision counter is in tenths of a kelvin.
-            precise_temps.into_iter().map(|(_, v)| v / 10.0 - 273.15).collect()
-        } else {
-            // The standard counter is in kelvin.
-            self.thermal_zones
-                .as_ref()
-                .map(Counter::array)
-                .unwrap_or_default()
-                .into_iter()
-                .map(|(_, v)| v - 273.15)
-                .collect()
-        };
-        // Average only plausible readings; firmware may expose no zones at all.
-        let temps: Vec<f64> = values.into_iter().filter(|t| (-20.0..=150.0).contains(t)).collect();
-        r.cpu_temp = (!temps.is_empty()).then(|| temps.iter().sum::<f64>() / temps.len() as f64);
         r.disk_read = self.disk_read.as_ref().and_then(Counter::value);
         r.disk_write = self.disk_write.as_ref().and_then(Counter::value);
         r.disk_active = self.disk_idle.as_ref().and_then(Counter::value).map(|idle| (100.0 - idle).clamp(0.0, 100.0));

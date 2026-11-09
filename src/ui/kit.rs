@@ -134,7 +134,7 @@ impl Input {
 }
 
 pub enum Popup {
-    Menu { id: u64, anchor: Rect, items: Vec<String>, selected: Option<usize> },
+    Menu { id: u64, anchor: Rect, items: Vec<String>, selected: Vec<usize>, multi: bool },
 }
 
 /// UI state that survives between frames.
@@ -154,6 +154,8 @@ pub struct State {
     pub content_h: f32,
     pub view_h: f32,
     pub hand: bool,
+    /// (row index, metric index) for a metric pill being dragged.
+    pub metric_drag: Option<(usize, usize)>,
     pub animating: bool,
     last: Instant,
     pub(crate) dt: f32,
@@ -179,6 +181,7 @@ impl Default for State {
             content_h: 0.0,
             view_h: 0.0,
             hand: false,
+            metric_drag: None,
             animating: false,
             last: Instant::now(),
             dt: 0.016,
@@ -592,7 +595,7 @@ impl<'a> Ui<'a> {
         self.pop_clip();
         self.glyph(icon::DOWN, r.right() - 18.0, r.y + h / 2.0 + 1.0, pal::DIM, false);
         if clicked {
-            self.st.popup = if open { None } else { Some(Popup::Menu { id, anchor: r, items: items.to_vec(), selected: Some(*value) }) };
+            self.st.popup = if open { None } else { Some(Popup::Menu { id, anchor: r, items: items.to_vec(), selected: vec![*value], multi: false }) };
         }
         if let Some((pid, i)) = self.st.picked {
             if pid == id {
@@ -606,9 +609,52 @@ impl<'a> Ui<'a> {
         false
     }
 
+    /// A dropdown that keeps the menu open while toggling multiple choices.
+    pub fn multi_dropdown(&mut self, id: u64, items: &[String], selected: &mut Vec<usize>, area: Rect, width: f32) -> bool {
+        let h = 32.0;
+        let r = Rect::new(area.right() - width, area.y + (area.h - h) / 2.0, width, h);
+        let (hover, clicked) = self.interact(id, r);
+        let open = matches!(&self.st.popup, Some(Popup::Menu { id: pid, .. }) if *pid == id);
+        self.fill(r, if hover || open { pal::CONTROL_HOVER } else { pal::CONTROL }, 5.0);
+        self.stroke(r, pal::STROKE, 5.0, 1.0);
+        let label = if selected.len() == 1 {
+            items.get(selected[0]).cloned().unwrap_or_else(|| "Select graphs".into())
+        } else {
+            format!("{} graphs selected", selected.len())
+        };
+        self.push_clip(r.inset(1.0, 1.0));
+        self.text_mid(Font::Body, &label, r.x + 12.0, r, pal::TEXT);
+        self.pop_clip();
+        self.glyph(icon::DOWN, r.right() - 18.0, r.y + h / 2.0 + 1.0, pal::DIM, false);
+        if clicked {
+            self.st.popup = if open { None } else { Some(Popup::Menu { id, anchor: r, items: items.to_vec(), selected: selected.clone(), multi: true }) };
+        }
+        let mut changed = false;
+        if let Some((pid, i)) = self.st.picked {
+            if pid == id {
+                self.st.picked = None;
+                if let Some(at) = selected.iter().position(|selected_index| *selected_index == i) {
+                    if selected.len() > 1 {
+                        selected.remove(at);
+                        changed = true;
+                    }
+                } else {
+                    selected.push(i);
+                    changed = true;
+                }
+            }
+        }
+        if let Some(Popup::Menu { id: pid, selected: popup_selected, .. }) = &mut self.st.popup {
+            if *pid == id {
+                *popup_selected = selected.clone();
+            }
+        }
+        changed
+    }
+
     /// Opens a menu anchored at `anchor`; read the choice with `menu_choice`.
     pub fn open_menu(&mut self, id: u64, anchor: Rect, items: Vec<String>) {
-        self.st.popup = Some(Popup::Menu { id, anchor, items, selected: None });
+        self.st.popup = Some(Popup::Menu { id, anchor, items, selected: vec![], multi: false });
     }
 
     pub fn menu_choice(&mut self, id: u64) -> Option<usize> {
@@ -816,8 +862,8 @@ impl<'a> Ui<'a> {
 
     /// Draws the open popup (call last) and handles its clicks.
     pub fn popups(&mut self) {
-        let Some(Popup::Menu { id, anchor, items, selected }) = &self.st.popup else { return };
-        let (id, anchor, items, selected) = (*id, *anchor, items.clone(), *selected);
+        let Some(Popup::Menu { id, anchor, items, selected, multi }) = &self.st.popup else { return };
+        let (id, anchor, items, selected, multi) = (*id, *anchor, items.clone(), selected.clone(), *multi);
         let r = menu_rect(anchor, items.len(), self.size);
         // soft shadow
         for i in 1..6 {
@@ -834,13 +880,19 @@ impl<'a> Ui<'a> {
             if hover {
                 self.fill(ir, pal::CONTROL_HOVER, 4.0);
             }
-            if selected == Some(i) {
-                self.fill(Rect::new(ir.x, ir.y + 9.0, 3.0, 14.0), pal::ACCENT, 1.5);
+            if selected.contains(&i) {
+                if multi {
+                    self.glyph(icon::CHECK, ir.right() - 18.0, ir.y + 16.0, pal::ACCENT, false);
+                } else {
+                    self.fill(Rect::new(ir.x, ir.y + 9.0, 3.0, 14.0), pal::ACCENT, 1.5);
+                }
             }
             self.text_mid(Font::Body, it, ir.x + 14.0, ir, pal::TEXT);
             if clicked {
                 self.st.picked = Some((id, i));
-                self.st.popup = None;
+                if !multi {
+                    self.st.popup = None;
+                }
                 self.st.animating = true;
             }
         }

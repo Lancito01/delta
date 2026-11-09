@@ -98,6 +98,7 @@ impl Sticky {
 }
 
 struct Cell {
+    id: String,
     value: TextBox,
     unit: Option<TextBox>,
     color: Color,
@@ -136,7 +137,7 @@ fn gaps(inp: &Inputs) -> Gaps {
 }
 
 enum Extra {
-    Graph { id: String, color: Color },
+    Graph { id: String, color: Color, after: Option<String>, heading: Option<Cell> },
     Cores { color: Color },
 }
 
@@ -205,13 +206,13 @@ fn build_row(row: &Row, inp: &Inputs, fonts: &Fonts) -> BuiltRow {
             }
             "app" => {
                 if let Some(v) = fonts.text(role, if inp.app.is_empty() { "—" } else { inp.app }) {
-                    cells.push(Cell { value: v, unit: None, color: plain_value, min_value: 0.0, min_unit: 0.0, live: None });
+                    cells.push(Cell { id: id.clone(), value: v, unit: None, color: plain_value, min_value: 0.0, min_unit: 0.0, live: None });
                 }
             }
             "time" => {
                 if let Some(v) = fonts.text(role, &now_hhmm()) {
                     let min_value = if fixed { fonts.width(role, "00:00") } else { 0.0 };
-                    cells.push(Cell { value: v, unit: None, color: plain_value, min_value, min_unit: 0.0, live: None });
+                    cells.push(Cell { id: id.clone(), value: v, unit: None, color: plain_value, min_value, min_unit: 0.0, live: None });
                 }
             }
             _ => match inp.values.get(id) {
@@ -222,7 +223,7 @@ fn build_row(row: &Row, inp: &Inputs, fonts: &Fonts) -> BuiltRow {
                         let unit = if f.unit.is_empty() { None } else { fonts.text(Role::Unit, &f.unit) };
                         let (min_value, min_unit) = template_widths(fonts, role, id, fixed);
                         let live = is_live(inp, id).then(|| id.clone());
-                        cells.push(Cell { value: tb, unit, color, min_value, min_unit, live });
+                        cells.push(Cell { id: id.clone(), value: tb, unit, color, min_value, min_unit, live });
                     }
                 }
                 None => {
@@ -234,7 +235,7 @@ fn build_row(row: &Row, inp: &Inputs, fonts: &Fonts) -> BuiltRow {
                             let (min_value, min_unit) = template_widths(fonts, role, id, fixed);
                             let unit = fonts.text(Role::Unit, &metrics::format(id, 0.0, inp.cfg.temperature).unit);
                             let live = is_live(inp, id).then(|| id.clone());
-                            cells.push(Cell { value: tb, unit, color: theme.colors.unit, min_value, min_unit, live });
+                            cells.push(Cell { id: id.clone(), value: tb, unit, color: theme.colors.unit, min_value, min_unit, live });
                         }
                     }
                 }
@@ -242,17 +243,58 @@ fn build_row(row: &Row, inp: &Inputs, fonts: &Fonts) -> BuiltRow {
         }
     }
     if matches!(row.display, Display::Graph | Display::Both) {
-        let gid = row.graph.clone().unwrap_or_else(|| first.to_string());
-        // A frame graph with no game to measure would just be an empty box.
-        let no_frames = metrics::group_of(&gid) == "fps" && inp.frametimes.is_empty() && !inp.values.contains_key("fps") && !inp.live;
-        if !no_frames {
-            extras.insert(0, Extra::Graph { id: gid, color: graph_color });
+        let graph_ids = if row.graph.is_empty() { vec![first.to_string()] } else { row.graph.clone() };
+        for gid in graph_ids {
+            if gid.is_empty() {
+                continue;
+            }
+            // A frame graph with no game to measure would just be an empty box.
+            let no_frames = metrics::group_of(&gid) == "fps" && inp.frametimes.is_empty() && !inp.values.contains_key("fps") && !inp.live;
+            if !no_frames {
+                let after = if gid == "frametime" && row.metrics.iter().any(|metric| metric.starts_with("fps")) {
+                    row.metrics.iter().find(|metric| metric.starts_with("fps")).cloned()
+                } else {
+                    Some(gid.clone())
+                };
+                extras.push(Extra::Graph { id: gid, color: graph_color, after, heading: None });
+            }
+        }
+        if inp.layout == Layout::Stack && row.display == Display::Both {
+            for extra in &mut extras {
+                if let Extra::Graph { id, heading, .. } = extra {
+                    if let Some(index) = cells.iter().position(|cell| &cell.id == id) {
+                        *heading = Some(cells.remove(index));
+                    } else {
+                        *heading = graph_heading_cell(id, inp, fonts, fixed, plain_value, theme);
+                    }
+                }
+            }
         }
         if row.display == Display::Graph {
             cells.clear();
         }
     }
     BuiltRow { label, group_color, label_color, cells, hero, extras, graph_max: row.graph_max }
+}
+
+fn graph_heading_cell(id: &str, inp: &Inputs, fonts: &Fonts, fixed: bool, plain_value: Color, theme: &Theme) -> Option<Cell> {
+    let live = is_live(inp, id).then(|| id.to_string());
+    let (value, unit, color) = if let Some(&v) = inp.values.get(id) {
+        let formatted = metrics::format(id, v, inp.cfg.temperature);
+        let value = fonts.text(Role::Value, &formatted.value)?;
+        let unit = if formatted.unit.is_empty() { None } else { fonts.text(Role::Unit, &formatted.unit) };
+        let color = threshold_color(inp.cfg, theme, id, v).unwrap_or(plain_value);
+        (value, unit, color)
+    } else if live.is_some() {
+        let (_, unit) = metrics::template(id);
+        let value = fonts.text(Role::Value, "—")?;
+        let unit = if unit.is_empty() { None } else { fonts.text(Role::Unit, unit) };
+        (value, unit, theme.colors.unit)
+    } else {
+        return None;
+    };
+    let (min_value, min_unit) = template_widths(fonts, Role::Value, id, fixed);
+    Some(Cell { id: id.to_string(), value, unit, color, min_value, min_unit, live })
 }
 
 /// Values RTSS can draw live, every frame.
@@ -413,10 +455,57 @@ fn stack(inp: &Inputs, fonts: &Fonts, rows: Vec<BuiltRow>, sticky: &mut Sticky) 
                 y += line_gap;
             }
             let h = match e {
-                Extra::Graph { id, color } => {
-                    let h = t.graph.height * s;
+                Extra::Graph { id, color, heading, .. } => {
+                    let graph_h = t.graph.height * s;
+                    let name = fonts.text(Role::Value, &metrics::display_name(id));
+                    let mut heading_base = name.as_ref().map_or(0.0, |text| text.baseline);
+                    let mut heading_h = name.as_ref().map_or(0.0, |text| text.h);
+                    if let Some(value) = heading {
+                        heading_base = heading_base.max(value.value.baseline);
+                        heading_h = heading_h.max(value.value.h);
+                        if let Some(unit) = &value.unit {
+                            heading_base = heading_base.max(unit.baseline);
+                            heading_h = heading_h.max(unit.h);
+                        }
+                    }
+                    let heading_gap = if heading_h > 0.0 { line_gap } else { 0.0 };
+                    let h = heading_h + heading_gap + graph_h;
+                    if on_label_line {
+                        if r.label.is_some() {
+                            if let Some(Prim::Text { y: ly, tb, .. }) = prims.iter_mut().rev().find(|p| matches!(p, Prim::Text { .. })) {
+                                *ly = y + (h - tb.h) / 2.0;
+                            }
+                        }
+                    }
+                    if let Some(name) = name {
+                        prims.push(Prim::Text { x: content_x, y: y + heading_base - name.baseline, tb: name.clone(), color: t.colors.unit, fx: false });
+                        let mut heading_x = content_x + name.w + g.column * 0.55;
+                        if let Some(value) = heading {
+                            if let Some(id) = &value.live {
+                                note_live(&mut live, id, heading_x + value.vw(), y + heading_base - value.value.baseline, false, value.color);
+                            } else {
+                                prims.push(Prim::Text {
+                                    x: heading_x + value.vw() - value.value.w,
+                                    y: y + heading_base - value.value.baseline,
+                                    tb: value.value.clone(),
+                                    color: value.color,
+                                    fx: true,
+                                });
+                            }
+                            heading_x += value.vw();
+                            if let Some(unit) = &value.unit {
+                                prims.push(Prim::Text {
+                                    x: heading_x + g.unit,
+                                    y: y + heading_base - unit.baseline,
+                                    tb: unit.clone(),
+                                    color: t.colors.unit,
+                                    fx: false,
+                                });
+                            }
+                        }
+                    }
                     let (values, slots, min, max) = graph_values(inp, id, r.graph_max);
-                    let rect = Rect { x: content_x, y, w: graph_w, h };
+                    let rect = Rect { x: content_x, y: y + heading_h + heading_gap, w: graph_w, h: graph_h };
                     if inp.live && id == "frametime" {
                         live.graph = Some((rect, *color));
                     }
@@ -425,18 +514,15 @@ fn stack(inp: &Inputs, fonts: &Fonts, rows: Vec<BuiltRow>, sticky: &mut Sticky) 
                 }
                 Extra::Cores { color } => {
                     let h = t.cores.height * s;
+                    if on_label_line {
+                        if let Some(Prim::Text { y: ly, tb, .. }) = prims.iter_mut().rev().find(|p| matches!(p, Prim::Text { .. })) {
+                            *ly = y + (h - tb.h) / 2.0;
+                        }
+                    }
                     prims.push(Prim::Bars { r: Rect { x: content_x, y, w: cores_w(inp.cores.len()), h }, values: inp.cores.iter().map(|v| *v as f32).collect(), color: *color });
                     h
                 }
             };
-            if on_label_line {
-                // Center the label on the graph.
-                if let Some(Prim::Text { y: ly, tb, .. }) = prims.iter_mut().rev().find(|p| matches!(p, Prim::Text { .. })) {
-                    if r.label.is_some() {
-                        *ly = y + (h - tb.h) / 2.0;
-                    }
-                }
-            }
             y += h;
         }
         if t.shape.row_marker {
@@ -532,16 +618,30 @@ fn bar(inp: &Inputs, fonts: &Fonts, rows: Vec<BuiltRow>, sticky: &mut Sticky) ->
                 x += unit_gap + sticky.get(format!("bu{ri}.{j}"), c.uw());
             }
             x += gap * 0.75;
+            for e in r.extras.iter().filter(|extra| matches!(extra, Extra::Graph { after: Some(after), .. } if after == &c.id)) {
+                let Extra::Graph { id, color, .. } = e else { continue };
+                let w = if t.graph.width > 0.0 { t.graph.width * s } else { 60.0 * s };
+                let (values, slots, min, max) = graph_values(inp, id, r.graph_max);
+                let rect = Rect { x, y: py + (line_h - graph_h) / 2.0, w, h: graph_h };
+                if inp.live && id == "frametime" {
+                    live.graph = Some((rect, *color));
+                }
+                prims.push(Prim::Graph { r: rect, values, slots, min, max, color: *color, style: t.graph.style });
+                x += w + gap * 0.75;
+            }
         }
         if !r.cells.is_empty() {
             x -= gap * 0.75;
         }
         for e in &r.extras {
+            if matches!(e, Extra::Graph { after: Some(after), .. } if r.cells.iter().any(|cell| &cell.id == after)) {
+                continue;
+            }
             if !r.cells.is_empty() || r.label.is_some() {
                 x += gap * 0.75;
             }
             match e {
-                Extra::Graph { id, color } => {
+                Extra::Graph { id, color, .. } => {
                     let w = if t.graph.width > 0.0 { t.graph.width * s } else { 60.0 * s };
                     let (values, slots, min, max) = graph_values(inp, id, r.graph_max);
                     let rect = Rect { x, y: py + (line_h - graph_h) / 2.0, w, h: graph_h };
