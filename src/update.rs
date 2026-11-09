@@ -198,3 +198,21 @@ mod tests {
         assert_eq!(sha256_hex(b"abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
     }
 }
+
+#[cfg(test)]
+mod live {
+    /// Reads the real latest release and verifies its download (doesn't install it).
+    /// `cargo test live_release -- --ignored`
+    #[test]
+    #[ignore]
+    fn live_release() {
+        let r = super::latest().unwrap();
+        println!("latest: {} ({} bytes)", r.version, r.size);
+        let expected = r.sha256.clone().expect("GitHub publishes a digest");
+        let data = super::get(&r.url, "application/octet-stream").unwrap();
+        assert_eq!(data.len() as u64, r.size);
+        assert_eq!(super::sha256_hex(&data), expected);
+        assert_eq!(&data[..2], b"MZ");
+        assert!(!super::is_newer(&r.version, env!("CARGO_PKG_VERSION")), "this build is the released version");
+    }
+}
