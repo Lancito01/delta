@@ -126,7 +126,7 @@ latest release, and the download.
 | FPS and frame times | A real-time ETW session on the DXGI and D3D9 `Present` events (needs admin), or RivaTuner's count when it draws in the game |
 | Exclusive fullscreen | The themed panel goes to RivaTuner as a picture; live `<FR>`/`<FT>` fields and an embedded frame time graph are pinned over the empty slots |
 | Graphics card | NVML from the NVIDIA driver; Windows GPU counters for other vendors |
-| CPU, disk, network | Windows performance counters (per-core utility and effective clocks, like Task Manager); CPU temperature uses ACPI thermal zones when Windows exposes them |
+| CPU, disk, network | Windows performance counters (per-core utility and effective clocks, like Task Manager) |
 
 If the overlay doesn't show where you expect, Settings → Overview → *Last app in front* (also in the
 tray's Status menu and `%APPDATA%\Delta\delta.log`) says what Delta saw: whether the app covers its
@@ -135,7 +135,7 @@ monitor, whether it's in exclusive fullscreen, where FPS came from, and where th
 ## Limitations and plans
 
 - FPS without RivaTuner covers Direct3D 9–12; Vulkan and OpenGL are planned.
-- Temperatures for AMD and Intel GPUs aren't read yet. CPU temperature depends on the thermal zones exposed by system firmware, and may differ from a CPU package sensor reading.
+- CPU temperature is temporarily unavailable because Windows thermal-zone readings can misrepresent the CPU package temperature. Temperatures for AMD and Intel GPUs aren't read yet.
 - A native in-game hook (D3D11/12) was built and works, but is shelved in [`experimental/`](experimental/) in favor of RivaTuner, which anti-cheats already accept.
 
 ## Build from source

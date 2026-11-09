@@ -103,7 +103,8 @@ pub struct Row {
     pub label: String,
     pub metrics: Vec<String>,
     pub display: Display,
-    pub graph: Option<String>,
+    #[serde(default, with = "graph_selection", skip_serializing_if = "Vec::is_empty")]
+    pub graph: Vec<String>,
     pub group: Option<String>,
     pub color: Option<Color>,
     pub graph_max: Option<f64>,
@@ -111,7 +112,36 @@ pub struct Row {
 
 impl Default for Row {
     fn default() -> Self {
-        Row { label: String::new(), metrics: vec![], display: Display::Text, graph: None, group: None, color: None, graph_max: None }
+        Row { label: String::new(), metrics: vec![], display: Display::Text, graph: vec![], group: None, color: None, graph_max: None }
+    }
+}
+
+/// Accept the old single-string setting as well as the new list of graph series.
+mod graph_selection {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Selection {
+        One(String),
+        Many(Vec<String>),
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Ok(match Selection::deserialize(deserializer)? {
+            Selection::One(id) => vec![id],
+            Selection::Many(ids) => ids,
+        })
+    }
+
+    pub fn serialize<S>(ids: &[String], serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        ids.serialize(serializer)
     }
 }
 
@@ -316,6 +346,11 @@ impl Config {
         self.refresh_hz = self.refresh_hz.clamp(1, 144);
         self.history = self.history.clamp(4, 1000);
         self.frametime_samples = self.frametime_samples.clamp(16, 2000);
+        self.thresholds.remove("cpu.temp");
+        for row in &mut self.rows {
+            row.metrics.retain(|metric| metric != "cpu.temp");
+            row.graph.retain(|metric| metric != "cpu.temp");
+        }
     }
 }
 

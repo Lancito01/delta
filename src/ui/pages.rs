@@ -268,6 +268,31 @@ fn pill(ui: &mut Ui, r: Rect, text: &str, c: Color) {
 
 // ---------------------------------------------------------------- Metrics
 
+fn metric_chip_layout(widths: &[f32], left: f32, right: f32, top: f32) -> (Vec<Rect>, f32, f32) {
+    let mut x = left;
+    let mut y = top;
+    let mut rects = Vec::with_capacity(widths.len());
+    for width in widths {
+        if x + width > right && x > left {
+            x = left;
+            y += 38.0;
+        }
+        rects.push(Rect::new(x, y, *width, 30.0));
+        x += width + 8.0;
+    }
+    (rects, x, y)
+}
+
+fn draw_metric_pill(ui: &mut Ui, r: Rect, label: &str, color: Color, removable: bool) {
+    let hovered = r.contains(ui.inp.mouse);
+    ui.fill(r, if hovered { pal::CONTROL_HOVER } else { pal::CONTROL }, 15.0);
+    ui.circle(r.x + 13.0, r.y + 15.0, 3.5, color);
+    ui.text_mid(Font::Body, label, r.x + 22.0, r, pal::TEXT);
+    if removable {
+        ui.glyph(icon::CLOSE, r.right() - 15.0, r.y + 15.0, pal::FAINT, false);
+    }
+}
+
 fn metrics_page(ui: &mut Ui, cx: &mut Ctx) {
     ui.note("The overlay shows these rows from top to bottom. Each row has a label and one or more values, shown as numbers, a graph, or both.", pal::DIM);
     ui.y += 4.0;
@@ -314,29 +339,81 @@ fn metrics_page(ui: &mut Ui, cx: &mut Ctx) {
                 remove = Some(i);
             }
             // Metric chips.
-            let mut x = r.x + 18.0;
-            let mut y = r.y + 60.0;
+            let left = r.x + 18.0;
+            let right = r.right() - 18.0;
+            let top = r.y + 60.0;
+            let widths: Vec<f32> = row.metrics.iter().map(|m| ui.measure(Font::Body, &metrics::display_name(m)).0 + 48.0).collect();
+            let (targets, _, _) = metric_chip_layout(&widths, left, right, top);
+            let mut visuals = Vec::with_capacity(row.metrics.len());
+            for (j, metric) in row.metrics.iter().enumerate() {
+                let target = targets[j];
+                let x = ui.anim(id(&format!("metric-chip-x{i}-{metric}")), target.x, 18.0);
+                let y = ui.anim(id(&format!("metric-chip-y{i}-{metric}")), target.y, 18.0);
+                visuals.push((metric.clone(), Rect::new(x, y, target.w, target.h)));
+            }
+            let mut started_drag = false;
+            if !ui.blocked && ui.clip.is_none_or(|clip| clip.contains(ui.inp.mouse)) && ui.inp.pressed {
+                if let Some((j, _)) = visuals.iter().enumerate().find(|(_, (_, rect))| {
+                    Rect::new(rect.x, rect.y, rect.w - 26.0, rect.h).contains(ui.inp.mouse)
+                }) {
+                    ui.st.metric_drag = Some((i, j));
+                    started_drag = true;
+                }
+            }
+            if let Some((_, source)) = ui.st.metric_drag.filter(|(row_index, _)| *row_index == i) {
+                if !started_drag && (ui.inp.down || ui.inp.released) {
+                    if let Some((target, (_, rect))) = visuals.iter().enumerate().find(|(target, (_, rect))| {
+                        *target != source
+                            && Rect::new(rect.x, rect.y, rect.w - 26.0, rect.h).contains(ui.inp.mouse)
+                    }) {
+                        let insertion = target + usize::from(ui.inp.mouse.0 >= rect.x + rect.w / 2.0);
+                        let destination = if insertion > source { insertion - 1 } else { insertion };
+                        if destination != source && source < row.metrics.len() {
+                            let metric = row.metrics.remove(source);
+                            row.metrics.insert(destination.min(row.metrics.len()), metric);
+                            ui.st.metric_drag = Some((i, destination));
+                            cx.changed = true;
+                        }
+                    }
+                }
+                if ui.inp.released {
+                    ui.st.metric_drag = None;
+                }
+            }
+
+            let dragging = ui.st.metric_drag.is_some_and(|(row_index, _)| row_index == i);
+            let widths: Vec<f32> = row.metrics.iter().map(|m| ui.measure(Font::Body, &metrics::display_name(m)).0 + 48.0).collect();
+            let (targets, mut x, mut y) = metric_chip_layout(&widths, left, right, top);
             let mut drop_metric = None;
-            for (j, m) in row.metrics.iter().enumerate() {
-                let w = chip_w[j];
-                if x + w > r.right() - 18.0 && x > r.x + 18.0 {
-                    x = r.x + 18.0;
-                    y += 38.0;
+            for (j, metric) in row.metrics.iter().enumerate() {
+                let target = targets[j];
+                let current_x = ui.anim(id(&format!("metric-chip-x{i}-{metric}")), target.x, 18.0);
+                let current_y = ui.anim(id(&format!("metric-chip-y{i}-{metric}")), target.y, 18.0);
+                let rect = Rect::new(current_x, current_y, target.w, target.h);
+                let c = group_color_static(cx.themes, &cx.cfg.theme, metric);
+                if dragging {
+                    if ui.st.metric_drag == Some((i, j)) {
+                        ui.fill(rect, pal::ACCENT_SOFT, 15.0);
+                        ui.stroke(rect, pal::ACCENT.with_alpha(0.65), 15.0, 1.0);
+                    } else {
+                        draw_metric_pill(ui, rect, &metrics::display_name(metric), c, true);
+                    }
+                } else {
+                    let (_, removed, _) = ui.chip(idn(&format!("chip{i}"), j), &metrics::display_name(metric), c, true, rect.x, rect.y);
+                    if removed {
+                        drop_metric = Some(j);
+                    }
                 }
-                let c = group_color_static(cx.themes, &cx.cfg.theme, m);
-                let (_, rm, cw) = ui.chip(idn(&format!("chip{i}"), j), &metrics::display_name(m), c, true, x, y);
-                if rm {
-                    drop_metric = Some(j);
+            }
+            if !dragging {
+                if let Some(j) = drop_metric.take() {
+                    row.metrics.remove(j);
+                    ui.st.metric_drag = None;
+                    cx.changed = true;
                 }
-                x += cw + 8.0;
             }
-            let row = &mut cx.cfg.rows[i];
-            if let Some(j) = drop_metric {
-                row.metrics.remove(j);
-                cx.changed = true;
-            }
-            if x + 92.0 > r.right() - 18.0 && x > r.x + 18.0 {
-                x = r.x + 18.0;
+            if x + 92.0 > right && x > left {
+                x = left;
                 y += 38.0;
             }
             let (add, _) = ui.button(idn("chip-add", i), Some(icon::ADD), "Add", ButtonKind::Subtle, x, y - 1.0);
@@ -348,19 +425,36 @@ fn metrics_page(ui: &mut Ui, cx: &mut Ctx) {
             }
             if has_graph {
                 let gy = y + 40.0;
-                let row = &mut cx.cfg.rows[i];
                 let mut options: Vec<String> = row.metrics.iter().filter(|m| *m != "cpu.cores" && *m != "app").cloned().collect();
                 if !options.iter().any(|m| m == "frametime") && row.metrics.iter().any(|m| m.starts_with("fps")) {
                     options.push("frametime".into());
                 }
                 if !options.is_empty() {
-                    let current = row.graph.clone().unwrap_or_else(|| options[0].clone());
-                    let mut sel = options.iter().position(|o| *o == current).unwrap_or(0);
                     ui.text_mid(Font::Body, "Graph shows", r.x + 18.0, Rect::new(r.x, gy, 0.0, 36.0), pal::DIM);
                     let names: Vec<String> = options.iter().map(|o| metrics::display_name(o)).collect();
-                    if ui.dropdown(idn("row-graph", i), &names, &mut sel, Rect::new(r.x + 120.0, gy, 220.0, 36.0), 220.0) {
-                        row.graph = Some(options[sel].clone());
+                    let mut graph_ids: Vec<String> = row.graph.iter().filter(|g| options.contains(g)).cloned().collect();
+                    if graph_ids.is_empty() {
+                        graph_ids.push(options[0].clone());
+                    }
+                    let mut selected: Vec<usize> = options.iter().enumerate().filter_map(|(index, option)| graph_ids.contains(option).then_some(index)).collect();
+                    let old_graph_ids = graph_ids.clone();
+                    if ui.multi_dropdown(idn("row-graph", i), &names, &mut selected, Rect::new(r.x + 120.0, gy, 220.0, 36.0), 220.0) {
+                        if selected.is_empty() {
+                            selected = options.iter().position(|option| old_graph_ids.contains(option)).into_iter().collect();
+                        }
+                        row.graph = selected.iter().filter_map(|index| options.get(*index).cloned()).collect();
                         cx.changed = true;
+                    }
+                }
+            }
+            if dragging {
+                if let Some((_, source)) = ui.st.metric_drag.filter(|(row_index, _)| *row_index == i) {
+                    if let Some(metric) = row.metrics.get(source) {
+                        let w = widths[source];
+                        let floating = Rect::new(ui.inp.mouse.0 - w / 2.0, ui.inp.mouse.1 - 17.0, w, 30.0);
+                        let c = group_color_static(cx.themes, &cx.cfg.theme, metric);
+                        draw_metric_pill(ui, floating, &metrics::display_name(metric), c, false);
+                        ui.stroke(floating, pal::ACCENT, 15.0, 1.5);
                     }
                 }
             }
