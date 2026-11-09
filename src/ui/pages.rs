@@ -30,6 +30,8 @@ pub enum Action {
     StartRtss,
     CheckUpdates,
     RestartUpdate,
+    /// Install, pause, resume or remove the CPU temperature driver.
+    Driver(crate::pawnio::Op),
 }
 
 pub struct ThemeInfo {
@@ -59,6 +61,11 @@ pub struct Status {
     pub diag: String,
     /// (what to say, a new version is ready)
     pub update: (String, bool),
+    pub cpu_temp: metrics::cputemp::Status,
+    /// The current reading, formatted ("58 °C").
+    pub cpu_temp_now: Option<String>,
+    pub driver: crate::pawnio::Job,
+    pub driver_version: Option<String>,
 }
 
 /// Draws theme previews (the settings window owns the fonts for them).
@@ -74,6 +81,8 @@ pub struct PageState {
     pub new_exclude: String,
     pub new_include: String,
     pub new_above: String,
+    /// The driver's install button was pressed; the warning and the real button are showing.
+    pub confirm_install: bool,
 }
 
 pub struct Ctx<'a> {
@@ -132,6 +141,7 @@ pub fn draw(ui: &mut Ui, cx: &mut Ctx) {
         }
     }
     ui.popups();
+    ui.tooltip();
 }
 
 fn scrollbar(ui: &mut Ui, view: Rect) {
@@ -250,11 +260,110 @@ fn overview(ui: &mut Ui, cx: &mut Ctx) {
         ui.note(n, pal::WARN);
     }
 
+    cpu_temperature(ui, cx);
+
     ui.section("Quick start");
     ui.note("Pick what to show under Metrics, how it looks under Appearance, and when it appears under When to show. Every change shows up on the overlay right away.", pal::DIM);
     if !cx.status.diag.is_empty() {
         ui.section("Last app in front");
         ui.note(&cx.status.diag, pal::FAINT);
+    }
+}
+
+/// The CPU temperature's state, and the buttons that manage the driver it's read through.
+fn cpu_temperature(ui: &mut Ui, cx: &mut Ctx) {
+    use crate::metrics::cputemp::Status as Temp;
+    use crate::pawnio::{Job, Op};
+    let st = cx.status;
+    ui.section("CPU temperature");
+    let version = st.driver_version.as_ref().map_or(String::new(), |v| format!(" {v}"));
+    let (label, color, desc) = match &st.cpu_temp {
+        Temp::Unknown => ("Checking".to_string(), pal::FAINT, "Looking for the sensor…".to_string()),
+        Temp::Working => (
+            st.cpu_temp_now.clone().unwrap_or_else(|| "Working".into()),
+            pal::GOOD,
+            format!("Read from the processor's own sensor, through the PawnIO driver{version}. Add \"CPU temperature\" to a row under Metrics to see it on the overlay."),
+        ),
+        Temp::NotInstalled => (
+            "Needs a driver".to_string(),
+            pal::WARN,
+            "Windows doesn't let apps read the processor's temperature sensor themselves. Delta can read it through PawnIO, a small open-source driver that other sensor and fan apps use too.".to_string(),
+        ),
+        Temp::Paused => ("Paused".to_string(), pal::FAINT, "The driver is installed but switched off, so it isn't loaded, also after a restart. Resume it to see the temperature again.".to_string()),
+        Temp::NeedsAdmin => ("Needs administrator".to_string(), pal::WARN, "The driver only answers apps that run as administrator. Restart Delta as administrator to see the temperature.".to_string()),
+        Temp::Blocked(why) => (
+            "Unavailable".to_string(),
+            pal::WARN,
+            format!("The driver is installed, but {why}. Restarting Windows may fix it; if it doesn't, an anti-cheat or a Windows security setting is blocking the driver. Everything else in Delta works as usual."),
+        ),
+        Temp::Unsupported => ("Not supported".to_string(), pal::FAINT, "Delta reads the temperature of Intel Core and AMD Ryzen processors. This one isn't supported yet.".to_string()),
+    };
+    ui.setting(Some(icon::CHIP), "Processor temperature", &desc, 190.0, |ui, r| pill(ui, r, &label, color));
+
+    if let Job::Running(op) = &st.driver {
+        ui.note(op.doing(), pal::DIM);
+        return;
+    }
+    let installed = matches!(st.cpu_temp, Temp::Working | Temp::Paused | Temp::NeedsAdmin | Temp::Blocked(_));
+    if !matches!(st.cpu_temp, Temp::NotInstalled) {
+        cx.ps.confirm_install = false;
+    }
+    let y = ui.y + 4.0;
+    let mut x = ui.x;
+    let mut button = |ui: &mut Ui, name: &str, glyph: Option<char>, label: &str, kind: ButtonKind| {
+        let (clicked, r) = ui.button(id(name), glyph, label, kind, x, y);
+        x = r.right() + 8.0;
+        clicked
+    };
+    match &st.cpu_temp {
+        Temp::NotInstalled if cx.ps.confirm_install => {
+            ui.note(
+                &format!("This installs PawnIO {}, a signed kernel driver, with its own installer: downloaded from PawnIO's GitHub release and checked against a known checksum first. Only administrator apps can use the driver. Some anti-cheats may refuse to start a game while it's loaded; you can pause it here without uninstalling it.", crate::pawnio::VERSION),
+                pal::WARN,
+            );
+            let y = ui.y + 4.0;
+            let (go, r) = ui.button(id("drv-install-go"), Some(icon::SHIELD), "Install", ButtonKind::Primary, ui.x, y);
+            let (cancel, _) = ui.button(id("drv-install-cancel"), None, "Cancel", ButtonKind::Secondary, r.right() + 8.0, y);
+            if go {
+                cx.actions.push(Action::Driver(Op::Install));
+            }
+            if go || cancel {
+                cx.ps.confirm_install = false;
+            }
+            ui.y += 48.0;
+        }
+        Temp::NotInstalled => {
+            if button(ui, "drv-install", Some(icon::SHIELD), "Install the driver…", ButtonKind::Primary) {
+                cx.ps.confirm_install = true;
+            }
+            ui.y += 48.0;
+        }
+        _ if installed => {
+            if st.cpu_temp == Temp::NeedsAdmin && button(ui, "drv-admin", Some(icon::SHIELD), "Restart as administrator", ButtonKind::Primary) {
+                cx.actions.push(Action::RestartAdmin);
+            }
+            if st.cpu_temp == Temp::Paused {
+                if button(ui, "drv-resume", Some(icon::POWER), "Resume", ButtonKind::Primary) {
+                    cx.actions.push(Action::Driver(Op::Resume));
+                }
+            } else if button(ui, "drv-pause", Some(icon::POWER), "Pause", ButtonKind::Secondary) {
+                cx.actions.push(Action::Driver(Op::Pause));
+            }
+            if button(ui, "drv-uninstall", Some(icon::DELETE), "Uninstall", ButtonKind::Danger) {
+                cx.actions.push(Action::Driver(Op::Uninstall));
+            }
+            ui.y += 48.0;
+        }
+        _ => {}
+    }
+    match &st.driver {
+        Job::Done(op, Ok(false)) => ui.note(op.done(), pal::GOOD),
+        Job::Done(op, Ok(true)) => ui.note(&format!("{} Restart Windows to finish.", op.done()), pal::WARN),
+        Job::Done(_, Err(e)) => ui.note(e, pal::BAD),
+        _ => {}
+    }
+    if installed {
+        ui.note("Some anti-cheats may refuse to start a game while this driver is loaded. Pause unloads it and keeps it unloaded until you resume it; Uninstall removes it. Other apps that use PawnIO (fan, RGB and sensor tools) lose it too.", pal::FAINT);
     }
 }
 
@@ -283,11 +392,27 @@ fn metric_chip_layout(widths: &[f32], left: f32, right: f32, top: f32) -> (Vec<R
     (rects, x, y)
 }
 
-fn draw_metric_pill(ui: &mut Ui, r: Rect, label: &str, color: Color, removable: bool) {
+/// Why a metric can't be read right now (the pill is greyed out and says so on hover).
+fn metric_unavailable(cx: &Ctx, metric: &str) -> Option<&'static str> {
+    use crate::metrics::cputemp::Status as Temp;
+    if metric != "cpu.temp" {
+        return None;
+    }
+    match cx.status.cpu_temp {
+        Temp::Unknown | Temp::Working => None,
+        Temp::NotInstalled => Some("Unavailable: the CPU temperature driver isn't installed. Set it up on the Overview page."),
+        Temp::Paused => Some("Unavailable: the CPU temperature driver is paused. Resume it on the Overview page."),
+        Temp::NeedsAdmin => Some("Unavailable: the driver only answers apps running as administrator. Restart Delta as administrator."),
+        Temp::Blocked(_) => Some("Unavailable: the CPU temperature driver can't be reached. See the Overview page."),
+        Temp::Unsupported => Some("Unavailable: this processor isn't supported yet."),
+    }
+}
+
+fn draw_metric_pill(ui: &mut Ui, r: Rect, label: &str, color: Color, removable: bool, dim: bool) {
     let hovered = r.contains(ui.inp.mouse);
     ui.fill(r, if hovered { pal::CONTROL_HOVER } else { pal::CONTROL }, 15.0);
-    ui.circle(r.x + 13.0, r.y + 15.0, 3.5, color);
-    ui.text_mid(Font::Body, label, r.x + 22.0, r, pal::TEXT);
+    ui.circle(r.x + 13.0, r.y + 15.0, 3.5, if dim { pal::FAINT.with_alpha(0.5) } else { color });
+    ui.text_mid(Font::Body, label, r.x + 22.0, r, if dim { pal::FAINT } else { pal::TEXT });
     if removable {
         ui.glyph(icon::CLOSE, r.right() - 15.0, r.y + 15.0, pal::FAINT, false);
     }
@@ -313,6 +438,8 @@ fn metrics_page(ui: &mut Ui, cx: &mut Ctx) {
         }
         let has_graph = cx.cfg.rows[i].display != Display::Text;
         let h = 60.0 + lines as f32 * 38.0 + if has_graph { 44.0 } else { 0.0 } + 8.0;
+        let unavailable: Vec<(String, &'static str)> = cx.cfg.rows[i].metrics.iter().filter_map(|m| metric_unavailable(cx, m).map(|w| (m.clone(), w))).collect();
+        let why_of = |m: &str| unavailable.iter().find(|(k, _)| k == m).map(|(_, w)| *w);
         ui.card(h, |ui, r| {
             let row = &mut cx.cfg.rows[i];
             let hy = r.y + 14.0;
@@ -355,7 +482,7 @@ fn metrics_page(ui: &mut Ui, cx: &mut Ctx) {
                 visuals.push((metric.clone(), Rect::new(x, y, target.w, target.h)));
             }
             let mut started_drag = false;
-            if !ui.blocked && ui.clip.is_none_or(|clip| clip.contains(ui.inp.mouse)) && ui.inp.pressed {
+            if !ui.blocked && !ui.st.swallow && ui.clip.is_none_or(|clip| clip.contains(ui.inp.mouse)) && ui.inp.pressed {
                 if let Some((j, _)) = visuals.iter().enumerate().find(|(_, (_, rect))| {
                     Rect::new(rect.x, rect.y, rect.w - 26.0, rect.h).contains(ui.inp.mouse)
                 }) {
@@ -402,15 +529,21 @@ fn metrics_page(ui: &mut Ui, cx: &mut Ctx) {
                 }
                 let rect = Rect::new(current_x, current_y, target.w, target.h);
                 let c = group_color_static(cx.themes, &cx.cfg.theme, metric);
+                let why = why_of(metric);
+                if let Some(why) = why {
+                    if !dragging && !ui.blocked && rect.contains(ui.inp.mouse) && ui.clip.is_none_or(|clip| clip.contains(ui.inp.mouse)) {
+                        ui.st.tooltip = Some(why.to_string());
+                    }
+                }
                 if dragging {
                     if ui.st.metric_drag == Some((i, j)) {
                         ui.fill(rect, pal::ACCENT_SOFT, 15.0);
                         ui.stroke(rect, pal::ACCENT.with_alpha(0.65), 15.0, 1.0);
                     } else {
-                        draw_metric_pill(ui, rect, &metrics::display_name(metric), c, true);
+                        draw_metric_pill(ui, rect, &metrics::display_name(metric), c, true, why.is_some());
                     }
                 } else {
-                    let (_, removed, _) = ui.chip(idn(&format!("chip{i}"), j), &metrics::display_name(metric), c, true, rect.x, rect.y);
+                    let (_, removed, _) = ui.chip_ex(idn(&format!("chip{i}"), j), &metrics::display_name(metric), c, true, why.is_some(), rect.x, rect.y);
                     if removed {
                         drop_metric = Some(j);
                     }
@@ -421,7 +554,8 @@ fn metrics_page(ui: &mut Ui, cx: &mut Ctx) {
             }
             if !dragging {
                 if let Some(j) = drop_metric.take() {
-                    row.metrics.remove(j);
+                    let gone = row.metrics.remove(j);
+                    row.graph.retain(|g| *g != gone);
                     ui.st.metric_drag = None;
                     cx.changed = true;
                 }
@@ -467,7 +601,8 @@ fn metrics_page(ui: &mut Ui, cx: &mut Ctx) {
                         let w = widths[source];
                         let floating = Rect::new(ui.inp.mouse.0 - w / 2.0, ui.inp.mouse.1 - 17.0, w, 30.0);
                         let c = group_color_static(cx.themes, &cx.cfg.theme, metric);
-                        draw_metric_pill(ui, floating, &metrics::display_name(metric), c, false);
+                        let dim = why_of(metric).is_some();
+                        draw_metric_pill(ui, floating, &metrics::display_name(metric), c, false, dim);
                         ui.stroke(floating, pal::ACCENT, 15.0, 1.5);
                     }
                 }
@@ -643,11 +778,12 @@ fn metric_picker(ui: &mut Ui, cx: &mut Ctx) {
             ui.glyph(icon::CHECK, cr.right() - 22.0, cr.y + 26.0, pal::ACCENT, false);
         }
         if clicked {
-            let m = &mut cx.cfg.rows[row].metrics;
+            let picked = &mut cx.cfg.rows[row];
             if added {
-                m.retain(|x| x != mid);
+                picked.metrics.retain(|x| x != mid);
+                picked.graph.retain(|x| x != mid);
             } else {
-                m.push(mid.to_string());
+                picked.metrics.push(mid.to_string());
             }
             cx.changed = true;
         }

@@ -69,6 +69,7 @@ values = "fixed"           # fixed: every value keeps room for its widest normal
 "gpu.temp" = [80, 88]
 "gpu.usage" = [95, 100]
 "cpu.usage" = [90, 98]
+"cpu.temp" = [85, 95]
 "ram.pct" = [85, 95]
 "gpu.vram_pct" = [90, 97]
 
@@ -81,6 +82,8 @@ values = "fixed"           # fixed: every value keeps room for its widest normal
 #   fps, frametime, fps.low1, fps.low01          (needs Delta to run as administrator)
 #   gpu.usage, gpu.temp, gpu.clock, gpu.mem_clock, gpu.power, gpu.fan, gpu.vram, gpu.vram_pct
 #   cpu.usage, cpu.clock, cpu.cores (per-core bars), cpu.core.N (one core), cpu.core_clock.N
+#   cpu.temp                                     (needs the PawnIO driver: Settings > Overview)
+#                                                (N counts from 0: cpu.core.0 is the first core)
 #   ram.used, ram.total, ram.pct, app.ram
 #   disk.read, disk.write, disk.active, net.down, net.up
 #   app (foreground app name), time
@@ -102,7 +105,7 @@ metrics = ["gpu.vram", "gpu.vram_pct"]
 
 [[rows]]
 label = "CPU"
-metrics = ["cpu.usage", "cpu.clock"]
+metrics = ["cpu.usage", "cpu.temp", "cpu.clock"]
 
 [[rows]]
 label = ""

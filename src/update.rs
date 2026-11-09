@@ -36,7 +36,7 @@ impl Drop for Handle {
 }
 
 /// HTTPS GET (follows redirects, which GitHub's downloads use). Returns the body.
-fn get(url: &str, accept: &str) -> Result<Vec<u8>, String> {
+pub(crate) fn get(url: &str, accept: &str) -> Result<Vec<u8>, String> {
     let rest = url.strip_prefix("https://").ok_or("only https is allowed")?;
     let (host, path) = rest.split_once('/').map(|(h, p)| (h, format!("/{p}"))).unwrap_or((rest, "/".into()));
     unsafe {
@@ -81,7 +81,7 @@ fn get(url: &str, accept: &str) -> Result<Vec<u8>, String> {
     }
 }
 
-fn sha256_hex(data: &[u8]) -> String {
+pub(crate) fn sha256_hex(data: &[u8]) -> String {
     let mut out = [0u8; 32];
     unsafe {
         let _ = BCryptHash(BCRYPT_SHA256_ALG_HANDLE, None, data, &mut out);

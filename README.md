@@ -58,7 +58,7 @@ put a `config.toml` next to `delta.exe`.
 |---|---|
 | Frames | frame rate, frame time, 1% low, 0.1% low |
 | Graphics card | usage, temperature, core and memory clocks, power, fan, VRAM |
-| Processor | usage, average temperature, effective clock, per-core load bars and clocks |
+| Processor | usage, temperature, effective clock, per-core load bars, per-core load and clocks |
 | Memory | RAM used, total RAM, RAM %, the game's own memory |
 | Disk & network | read, write, activity, download, upload |
 | Other | the app in front, the time |
@@ -128,6 +128,23 @@ latest release, and the download.
 | Graphics card | NVML from the NVIDIA driver; Windows GPU counters for other vendors |
 | CPU, disk, network | Windows performance counters (per-core utility and effective clocks, like Task Manager) |
 
+### CPU temperature
+
+Windows gives apps no way to read the processor's temperature sensor; it takes a kernel driver.
+Delta doesn't ship one. It reads the sensor through [PawnIO](https://pawnio.eu), the open-source,
+signed driver that sensor and fan apps share, and only if you ask for it:
+
+- Settings → Overview → *CPU temperature* → **Install the driver** downloads PawnIO's own installer
+  from its GitHub release, checks it against a SHA-256 built into Delta, and runs it. Nothing is
+  installed otherwise. If another app already installed PawnIO, Delta just uses it.
+- Delta must run as administrator to read it (the driver only answers administrators).
+- Delta opens the driver for a moment per reading and only calls the read functions of PawnIO's
+  official, signed Intel and AMD modules, which are embedded unmodified.
+- **Pause** switches the driver off without uninstalling it: it's unloaded and stays unloaded, also
+  after a restart, until you **Resume** it. **Uninstall** removes it. Some anti-cheats may refuse to
+  start a game while the driver is loaded; if the driver is paused, missing or blocked, the only
+  effect on Delta is that the CPU temperature isn't shown.
+
 If the overlay doesn't show where you expect, Settings → Overview → *Last app in front* (also in the
 tray's Status menu and `%APPDATA%\Delta\delta.log`) says what Delta saw: whether the app covers its
 monitor, whether it's in exclusive fullscreen, where FPS came from, and where the overlay is.
@@ -135,7 +152,7 @@ monitor, whether it's in exclusive fullscreen, where FPS came from, and where th
 ## Limitations and plans
 
 - FPS without RivaTuner covers Direct3D 9–12; Vulkan and OpenGL are planned.
-- CPU temperature is temporarily unavailable because Windows thermal-zone readings can misrepresent the CPU package temperature. Temperatures for AMD and Intel GPUs aren't read yet.
+- CPU temperature covers Intel Core and AMD Ryzen (family 17h and later) processors; older AMD chips aren't read yet. Temperatures for AMD and Intel GPUs aren't read yet.
 - A native in-game hook (D3D11/12) was built and works, but is shelved in [`experimental/`](experimental/) in favor of RivaTuner, which anti-cheats already accept.
 
 ## Build from source
@@ -157,3 +174,6 @@ pick it up on their own.
 ## License
 
 MIT or Apache-2.0, at your option.
+
+The two PawnIO modules in [`assets/pawnio/`](assets/pawnio/) are third-party, unmodified, and licensed
+under the LGPL-2.1; see the notice there.

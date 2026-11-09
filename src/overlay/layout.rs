@@ -183,7 +183,10 @@ fn build_row(row: &Row, inp: &Inputs, fonts: &Fonts) -> BuiltRow {
         if l.is_empty() { l } else { format!("{}{}", theme.text.label_prefix, l) }
     };
     let label = if label_text.is_empty() { None } else { fonts.text(Role::Label, &label_text) };
-    let hero = first == "fps" && theme.font.hero_size > theme.font.size;
+    // In a stacked "numbers and graph" row, a graphed value moves into the heading above its
+    // graph. It's drawn at the normal size there, so the row has no big first number then.
+    let first_headed = inp.layout == Layout::Stack && row.display == Display::Both && (row.graph.is_empty() || row.graph.iter().any(|g| g == first));
+    let hero = first == "fps" && theme.font.hero_size > theme.font.size && !first_headed;
 
     let fixed = inp.cfg.spacing.values == ValueWidth::Fixed;
     let mut cells = vec![];
@@ -250,7 +253,10 @@ fn build_row(row: &Row, inp: &Inputs, fonts: &Fonts) -> BuiltRow {
             }
             // A frame graph with no game to measure would just be an empty box.
             let no_frames = metrics::group_of(&gid) == "fps" && inp.frametimes.is_empty() && !inp.values.contains_key("fps") && !inp.live;
-            if !no_frames {
+            // Likewise a value that can't be read right now (e.g. the CPU temperature with its
+            // driver paused): its old history would otherwise linger as a frozen graph.
+            let no_reading = metrics::group_of(&gid) != "fps" && !inp.values.contains_key(&gid);
+            if !no_frames && !no_reading {
                 let after = if gid == "frametime" && row.metrics.iter().any(|metric| metric.starts_with("fps")) {
                     row.metrics.iter().find(|metric| metric.starts_with("fps")).cloned()
                 } else {
@@ -393,8 +399,15 @@ fn stack(inp: &Inputs, fonts: &Fonts, rows: Vec<BuiltRow>, sticky: &mut Sticky) 
         content_w = content_w.max(cores_w(inp.cores.len()));
     }
     let graph_w = if t.graph.width > 0.0 { t.graph.width * s } else { content_w.max(150.0 * s) };
-    if rows.iter().any(|r| r.extras.iter().any(|e| matches!(e, Extra::Graph { .. }))) {
-        content_w = content_w.max(graph_w);
+    for e in rows.iter().flat_map(|r| &r.extras) {
+        if let Extra::Graph { id, heading, .. } = e {
+            // The graph, and the "name value unit" heading above it, both have to fit the panel.
+            let mut w = fonts.width(Role::Value, &metrics::display_name(id));
+            if let Some(c) = heading {
+                w += g.column * 0.55 + c.vw() + c.unit.as_ref().map_or(0.0, |u| g.unit + u.w);
+            }
+            content_w = content_w.max(graph_w).max(w);
+        }
     }
 
     let mut live = Live::default();
@@ -514,7 +527,7 @@ fn stack(inp: &Inputs, fonts: &Fonts, rows: Vec<BuiltRow>, sticky: &mut Sticky) 
                 }
                 Extra::Cores { color } => {
                     let h = t.cores.height * s;
-                    if on_label_line {
+                    if on_label_line && r.label.is_some() {
                         if let Some(Prim::Text { y: ly, tb, .. }) = prims.iter_mut().rev().find(|p| matches!(p, Prim::Text { .. })) {
                             *ly = y + (h - tb.h) / 2.0;
                         }
