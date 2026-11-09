@@ -1,0 +1,37 @@
+name = "HUD"
+description = "No panel at all: bold, shadowed text floating over the game. The classic look, cleaned up."
+author = "Delta"
+extends = "minimal"
+
+[font]
+size = 16
+weight = 700
+label_size = 11
+label_weight = 800
+unit_size = 11
+hero_size = 24
+
+[colors]
+background = "#00000000"
+background_end = "#00000000"
+border = "#00000000"
+value = "#FFFFFF"
+unit = "#D8DCE6"
+shadow = "#000000D0"
+graph_grid = "#FFFFFF10"
+bar_track = "#FFFFFF26"
+
+[shape]
+padding_x = 4
+padding_y = 4
+row_gap = 3
+border_width = 0
+
+[graph]
+style = "line"
+line_width = 2
+background = "#00000033"
+
+[text]
+shadow = true
+shadow_offset = 1.5

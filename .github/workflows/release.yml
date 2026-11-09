@@ -1,0 +1,51 @@
+name: Release
+
+# Push a tag like v0.2.0 (matching `version` in Cargo.toml) to build and publish a release.
+# Delta's built-in updater picks it up from there.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the tag matches Cargo.toml
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"').Matches[0].Groups[1].Value
+          if ("v$v" -ne "${{ github.ref_name }}") { throw "Tag ${{ github.ref_name }} doesn't match Cargo.toml version $v" }
+
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: Test
+        run: cargo test --release --locked
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory dist | Out-Null
+          Copy-Item target/release/delta.exe dist/delta.exe
+          $hash = (Get-FileHash dist/delta.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  delta.exe" | Out-File -Encoding ascii -NoNewline dist/delta.exe.sha256
+          "SHA-256: $hash"
+
+      - name: Publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $notes = @"
+          Download **delta.exe** below, put it in its own folder and run it. A Δ icon appears in the tray: click it for settings.
+
+          Already using Delta? It updates itself (Settings → Advanced → Updates).
+
+          SHA-256 of delta.exe is in delta.exe.sha256.
+          "@
+          gh release create "${{ github.ref_name }}" dist/delta.exe dist/delta.exe.sha256 --title "Delta ${{ github.ref_name }}" --notes $notes --generate-notes

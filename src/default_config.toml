@@ -1,0 +1,115 @@
+# Delta configuration. Changes apply as soon as you save this file.
+#
+# WHAT is shown: the [[rows]] at the bottom.
+# HOW it looks:  `theme` (files in the themes folder), plus position/scale/opacity here.
+# WHEN it shows: the [show] section and [hotkeys].
+
+theme = "minimal"          # minimal | strip | futuristic | terminal | hud | neon | your own
+# layout = "bar"           # uncomment to override the theme's layout: stack | bar
+position = "top-left"      # top-left | top-center | top-right | middle-left | middle-right
+                           # bottom-left | bottom-center | bottom-right
+offset_x = 16              # px from the chosen edge (scaled with DPI)
+offset_y = 16
+monitor = "main"           # main | follow-game (the game's monitor, else main) | follow (active window's)
+                           # all (every monitor) | 1 | 2 | ...
+scale = 1.0                # extra size multiplier on top of Windows display scaling
+opacity = 1.0              # 0.1 .. 1.0, whole overlay
+background_opacity = 1.0   # 0 .. 1, panel background (on top of the theme's own transparency)
+text_opacity = 1.0         # 0.1 .. 1, text, graphs and bars
+
+poll_ms = 1000             # how often sensors are read
+refresh_hz = 30            # redraw rate (frametime graph / FPS); sensors still update at poll_ms
+history = 60               # samples kept for sensor graphs
+frametime_samples = 180    # frames shown in the frametime graph
+temperature = "c"          # c | f
+gpu_index = 0              # which GPU to read when you have more than one
+auto_update = true         # download new versions from GitHub in the background (used after a restart)
+
+[show]
+# always:     always visible (until you toggle it off with the hotkey)
+# games:      only while the foreground app is rendering frames (DirectX) or is fullscreen
+# fullscreen: only while the foreground window covers its whole monitor
+mode = "always"
+start_visible = true
+# Never show over these apps (exe names, case-insensitive), e.g. ["explorer.exe", "Discord.exe"]
+exclude = []
+# If not empty, ONLY show over these apps
+include = []
+hide_from_capture = false  # true = OBS / screenshots won't see the overlay
+# Other always-on-top apps (notches, widgets) that should stay above the overlay, e.g. ["Hitodama.exe"]
+stay_below = []
+
+[hotkeys]
+# Modifiers: Ctrl, Alt, Shift, Win. Keys: A-Z, 0-9, F1-F24, Home, End, Insert, Delete, PageUp, PageDown,
+# Up, Down, Left, Right, Space, Tab, Pause, ScrollLock, Num0-Num9. Leave empty ("") to disable.
+toggle = "Ctrl+Shift+F10"
+cycle_theme = "Ctrl+Shift+F11"
+cycle_position = "Ctrl+Shift+F12"
+
+[rtss]
+# Make apps written for RivaTuner Statistics Server (HWiNFO, AIDA64, OBS HUD, ...) work with Delta:
+# Delta offers RTSS's shared memory while RTSS itself isn't running, and draws their OSD text and images.
+compat = true
+# No window can show over a game in exclusive fullscreen. While RTSS runs, Delta can draw there
+# through it (Delta itself never loads anything into games): off | exclusive | always
+bridge = "exclusive"
+
+[spacing]
+values = "fixed"           # fixed: every value keeps room for its widest normal reading, so nothing shifts
+                           # fit: values only take the room they need
+# column_gap = 12          # px between values (default: the theme's)
+# unit_gap = 3             # px between a value and its unit
+# row_gap = 6              # px between rows
+# label_gap = 14           # px between a row's label and its values
+
+# Value colors: [warn, crit]. If warn > crit, lower is worse (like FPS).
+[thresholds]
+"fps" = [50, 30]
+"fps.low1" = [40, 25]
+"gpu.temp" = [80, 88]
+"cpu.temp" = [85, 95]
+"gpu.usage" = [95, 100]
+"cpu.usage" = [90, 98]
+"ram.pct" = [85, 95]
+"gpu.vram_pct" = [90, 97]
+
+# ---------------------------------------------------------------------------------------------
+# Rows, top to bottom. Each row: a label, the metrics in it, and how to show them:
+#   display = "text" | "graph" | "both"     (graph uses `graph` or the first metric)
+# Optional: group = "gpu" (which accent color), graph_max = 100
+#
+# Metrics:
+#   fps, frametime, fps.low1, fps.low01          (needs Delta to run as administrator)
+#   gpu.usage, gpu.temp, gpu.clock, gpu.mem_clock, gpu.power, gpu.fan, gpu.vram, gpu.vram_pct
+#   cpu.usage, cpu.clock, cpu.cores (per-core bars), cpu.core.N (one core), cpu.core_clock.N
+#   ram.used, ram.pct, app.ram
+#   disk.read, disk.write, disk.active, net.down, net.up
+#   app (foreground app name), time
+# ---------------------------------------------------------------------------------------------
+
+[[rows]]
+label = "FPS"
+metrics = ["fps", "frametime", "fps.low1"]
+display = "both"
+graph = "frametime"
+
+[[rows]]
+label = "GPU"
+metrics = ["gpu.usage", "gpu.temp", "gpu.clock", "gpu.power"]
+
+[[rows]]
+label = "VRAM"
+metrics = ["gpu.vram", "gpu.vram_pct"]
+
+[[rows]]
+label = "CPU"
+metrics = ["cpu.usage", "cpu.clock"]
+
+[[rows]]
+label = ""
+metrics = ["cpu.cores"]
+group = "cpu"
+
+[[rows]]
+label = "RAM"
+metrics = ["ram.used", "ram.pct"]

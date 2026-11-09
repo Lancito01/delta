@@ -1,0 +1,30 @@
+name = "Strip"
+description = "Minimal, squeezed into a single slim line. Great at the top edge of the screen."
+author = "Delta"
+extends = "minimal"
+
+layout = "bar"
+
+[font]
+size = 13
+label_size = 9
+hero_size = 13
+
+[shape]
+corner_radius = 8
+padding_x = 12
+padding_y = 6
+column_gap = 8
+label_gap = 6
+
+[graph]
+height = 14
+width = 56
+
+[cores]
+bar_width = 3
+bar_gap = 1
+height = 14
+
+[text]
+separator = "·"

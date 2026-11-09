@@ -1,0 +1,50 @@
+name = "Neon"
+description = "Synthwave: deep purple gradient, hot pink and cyan glow."
+author = "Delta"
+extends = "minimal"
+
+[font]
+weight = 700
+hero_size = 26
+label_tracking = 1.6
+
+[colors]
+background = "#1A0B2EDA"
+background_end = "#3A0D4AE6"
+border = "#FF4FD870"
+label = "#C9A7FF"
+value = "#FFF0FB"
+unit = "#B58CD9"
+accent = "#FF4FD8"
+good = "#4DFFDF"
+warn = "#FFB84D"
+crit = "#FF4D6D"
+graph_grid = "#FF4FD812"
+separator = "#FF4FD833"
+bar_track = "#FFFFFF14"
+
+[groups]
+fps = "#4DFFDF"
+gpu = "#FF4FD8"
+vram = "#E04FFF"
+cpu = "#FFB84D"
+ram = "#8C7BFF"
+disk = "#4DC3FF"
+net = "#FF7A9C"
+app = "#E0CCFF"
+misc = "#E0CCFF"
+
+[shape]
+corner_radius = 14
+padding_x = 14
+padding_y = 12
+row_marker = true
+
+[graph]
+style = "area"
+height = 28
+line_width = 2
+background = "#FFFFFF06"
+
+[text]
+glow = 1.0

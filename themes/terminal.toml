@@ -1,0 +1,84 @@
+name = "Terminal"
+description = "A real terminal window: Windows Terminal colors, monospace, a shell prompt. No movie-hacker glow."
+author = "Delta"
+extends = "minimal"
+
+label_color = "group"     # ANSI-style colors per group, like htop/btop
+graph_color = "group"
+value_color = "plain"
+
+[font]
+family = "Cascadia Mono, Consolas"
+size = 13
+weight = 400
+label_family = "Cascadia Mono, Consolas"
+label_size = 13
+label_weight = 400
+unit_size = 13
+label_tracking = 0
+uppercase_labels = false
+hero_size = 13
+
+[colors]
+# Windows Terminal "Campbell"
+background = "#0C0C0CF0"
+background_end = "#0C0C0CF0"
+border = "#FFFFFF26"
+label = "#CCCCCC"
+value = "#F2F2F2"
+unit = "#767676"
+accent = "#3A96DD"
+good = "#16C60C"
+warn = "#F9F1A5"
+crit = "#E74856"
+graph_fill = "#FFFFFF00"
+graph_grid = "#FFFFFF0F"
+separator = "#FFFFFF1F"
+bar_track = "#FFFFFF14"
+
+[groups]
+fps = "#16C60C"
+gpu = "#3B78FF"
+vram = "#61D6D6"
+cpu = "#F9F1A5"
+ram = "#B4009E"
+disk = "#3A96DD"
+net = "#E74856"
+app = "#CCCCCC"
+misc = "#CCCCCC"
+osd = "#CCCCCC"
+
+[shape]
+corner_style = "rounded"
+corner_radius = 6
+padding_x = 12
+padding_y = 9
+row_gap = 3
+column_gap = 14
+label_gap = 12
+border_width = 1
+label_width = 0
+row_marker = false
+
+[graph]
+style = "bars"
+height = 20
+line_width = 1
+grid = false
+background = "#FFFFFF08"
+
+[cores]
+bar_width = 6
+bar_gap = 1
+height = 14
+radius = 0
+
+[text]
+label_prefix = ""
+header = "PS C:\\> delta --watch"
+glow = 0.0
+shadow = false
+
+[decor]
+scanlines = false
+scanline_alpha = 0.0

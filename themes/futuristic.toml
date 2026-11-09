@@ -1,0 +1,77 @@
+name = "Futuristic"
+description = "Cut corners, cyan glow, scanlines and a telemetry header."
+author = "Delta"
+extends = "minimal"
+
+label_color = "group"
+graph_color = "group"
+
+[font]
+family = "Bahnschrift"
+size = 15
+weight = 600
+label_family = "Bahnschrift"
+label_size = 10
+label_weight = 600
+unit_size = 10
+label_tracking = 2.4
+hero_size = 26
+
+[colors]
+background = "#06101ED0"
+background_end = "#0B1D33E0"
+border = "#00E5FF80"
+label = "#5FD4E8"
+value = "#E6FBFF"
+unit = "#4FA9BA"
+accent = "#00E5FF"
+good = "#3DFFB0"
+warn = "#FFD23D"
+crit = "#FF3D6E"
+graph_grid = "#00E5FF14"
+separator = "#00E5FF33"
+bar_track = "#00E5FF1A"
+
+[groups]
+fps = "#3DFFB0"
+gpu = "#00E5FF"
+vram = "#00B3FF"
+cpu = "#FF9F1C"
+ram = "#C77DFF"
+disk = "#7CF8FF"
+net = "#FF4FD8"
+app = "#9AD9E6"
+misc = "#9AD9E6"
+
+[shape]
+corner_style = "cut"
+corner_radius = 12
+padding_x = 14
+padding_y = 10
+row_gap = 7
+column_gap = 14
+label_gap = 14
+border_width = 1
+label_width = 40
+row_marker = true
+
+[graph]
+style = "step"
+height = 28
+line_width = 1.5
+grid = true
+background = "#00E5FF0A"
+
+[cores]
+bar_width = 4
+bar_gap = 2
+height = 16
+radius = 0
+
+[text]
+header = "Δ DELTA  //  TELEMETRY"
+glow = 0.7
+
+[decor]
+scanlines = true
+scanline_alpha = 0.06

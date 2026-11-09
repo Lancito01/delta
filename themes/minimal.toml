@@ -1,0 +1,89 @@
+# Minimal: the base theme. Every theme implicitly extends this one, so it lists every option.
+# Copy this file under a new name in the themes folder to make your own theme.
+name = "Minimal"
+description = "Soft, quiet and readable. A translucent dark card with muted labels."
+author = "Delta"
+
+layout = "stack"          # stack | bar
+label_color = "group"     # plain | group   (group = use the group's accent color)
+graph_color = "group"     # plain | group
+value_color = "plain"     # plain | group
+
+[font]
+family = "Segoe UI Variable Display, Segoe UI"
+size = 14
+weight = 600
+label_family = "Segoe UI Variable Text, Segoe UI"
+label_size = 10
+label_weight = 700
+unit_size = 10
+label_tracking = 1.0
+uppercase_labels = true
+hero_size = 22
+
+[colors]
+background = "#0B0D12B8"
+background_end = "#0B0D12CC"
+border = "#FFFFFF14"
+label = "#8B93A7"
+value = "#EEF1F6"
+unit = "#7C8497"
+accent = "#89B4FA"
+good = "#A6E3A1"
+warn = "#F9E2AF"
+crit = "#F38BA8"
+graph_fill = "#FFFFFF00"   # alpha 0 = derive from the graph color
+graph_grid = "#FFFFFF0D"
+shadow = "#000000A0"
+separator = "#FFFFFF1A"
+bar_track = "#FFFFFF14"
+
+[groups]
+fps = "#A6E3A1"
+gpu = "#89B4FA"
+vram = "#74C7EC"
+cpu = "#FAB387"
+ram = "#CBA6F7"
+disk = "#94E2D5"
+net = "#F5C2E7"
+app = "#BAC2DE"
+misc = "#BAC2DE"
+osd = "#BAC2DE"
+
+[shape]
+corner_style = "rounded"  # rounded | cut | brackets
+corner_radius = 10
+padding_x = 12
+padding_y = 10
+row_gap = 6
+column_gap = 12
+label_gap = 14
+border_width = 1
+label_width = 34
+row_marker = false
+
+[graph]
+style = "area"            # line | area | bars | step
+height = 26
+width = 0                 # 0 = full row width
+line_width = 1.5
+grid = false
+background = "#FFFFFF08"
+
+[cores]
+bar_width = 5
+bar_gap = 2
+height = 16
+radius = 1.5
+
+[text]
+shadow = false
+shadow_offset = 1
+label_prefix = ""
+separator = ""
+header = ""
+glow = 0.0
+
+[decor]
+scanlines = false
+scanline_alpha = 0.0
