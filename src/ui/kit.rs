@@ -158,10 +158,12 @@ pub struct State {
     pub metric_drag: Option<(usize, usize)>,
     /// Row whose pills are finishing a reorder animation.
     pub metric_reorder: Option<usize>,
+    /// Text to show next to the mouse this frame (set by whatever is hovered).
+    pub tooltip: Option<String>,
     pub animating: bool,
     last: Instant,
     pub(crate) dt: f32,
-    swallow: bool,
+    pub(crate) swallow: bool,
     caret: Instant,
 }
 
@@ -185,6 +187,7 @@ impl Default for State {
             hand: false,
             metric_drag: None,
             metric_reorder: None,
+            tooltip: None,
             animating: false,
             last: Instant::now(),
             dt: 0.016,
@@ -316,6 +319,7 @@ impl<'a> Ui<'a> {
         st.last = now;
         st.hot = 0;
         st.hand = false;
+        st.tooltip = None;
         st.animating = false;
         // Click outside an open popup closes it, and that click does nothing else.
         let mut blocked = st.modal.is_some();
@@ -575,10 +579,10 @@ impl<'a> Ui<'a> {
             x += w;
         }
         let sel = (*value).min(options.len().saturating_sub(1));
-        // These are layout coordinates, so animating them from the previous frame makes the
-        // selection slide across the control when the window is resized.
-        let ax = xs[sel];
-        let aw = widths[sel];
+        // Animated relative to the control, so the selection glides between options but doesn't
+        // slide across the control when the window is resized.
+        let ax = r.x + self.anim(id ^ 7, xs[sel] - r.x, 20.0);
+        let aw = self.anim(id ^ 9, widths[sel], 20.0);
         self.fill(Rect::new(ax, r.y + pad, aw, h - pad * 2.0), pal::ACCENT_SOFT, 4.0);
         self.fill(Rect::new(ax + aw / 2.0 - 8.0, r.bottom() - pad - 3.0, 16.0, 2.5), pal::ACCENT, 1.25);
         for (i, o) in options.iter().enumerate() {
@@ -847,13 +851,19 @@ impl<'a> Ui<'a> {
 
     /// A pill. Returns (clicked, remove clicked).
     pub fn chip(&mut self, id: u64, label: &str, color: Color, removable: bool, x: f32, y: f32) -> (bool, bool, f32) {
+        self.chip_ex(id, label, color, removable, false, x, y)
+    }
+
+    /// A chip; `dim` greys it out (still interactive) for a value that can't be read right now.
+    #[allow(clippy::too_many_arguments)]
+    pub fn chip_ex(&mut self, id: u64, label: &str, color: Color, removable: bool, dim: bool, x: f32, y: f32) -> (bool, bool, f32) {
         let (tw, _) = self.measure(Font::Body, label);
         let w = tw + 26.0 + if removable { 22.0 } else { 0.0 };
         let r = Rect::new(x, y, w, 30.0);
         let (hover, clicked) = self.interact(id, Rect::new(r.x, r.y, r.w - if removable { 26.0 } else { 0.0 }, r.h));
         self.fill(r, if hover { pal::CONTROL_HOVER } else { pal::CONTROL }, 15.0);
-        self.circle(r.x + 13.0, r.y + 15.0, 3.5, color);
-        self.text_mid(Font::Body, label, r.x + 22.0, r, pal::TEXT);
+        self.circle(r.x + 13.0, r.y + 15.0, 3.5, if dim { pal::FAINT.with_alpha(0.5) } else { color });
+        self.text_mid(Font::Body, label, r.x + 22.0, r, if dim { pal::FAINT } else { pal::TEXT });
         let mut removed = false;
         if removable {
             let xr = Rect::new(r.right() - 27.0, r.y + 3.0, 24.0, 24.0);
@@ -868,6 +878,21 @@ impl<'a> Ui<'a> {
     }
 
     // ------------------------------------------------ overlays (popups, modal frame)
+
+    /// Draws the tooltip asked for this frame, next to the mouse (call last).
+    pub fn tooltip(&mut self) {
+        let Some(text) = self.st.tooltip.clone() else { return };
+        let wrap = 280.0;
+        let (tw, th) = self.measure_wrapped(Font::Small, &text, wrap);
+        let (w, h) = (tw + 20.0, th + 14.0);
+        let (mx, my) = self.inp.mouse;
+        let x = (mx + 14.0).min(self.size.0 - w - 8.0).max(8.0);
+        let y = if my + 20.0 + h > self.size.1 - 8.0 { my - h - 10.0 } else { my + 20.0 };
+        let r = Rect::new(x, y, w, h);
+        self.fill(r, pal::POPUP, 8.0);
+        self.stroke(r, pal::STROKE_STRONG, 8.0, 1.0);
+        self.text_wrapped(Font::Small, &text, x + 10.0, y + 7.0, wrap, pal::TEXT);
+    }
 
     /// Draws the open popup (call last) and handles its clicks.
     pub fn popups(&mut self) {

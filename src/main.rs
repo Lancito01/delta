@@ -10,6 +10,7 @@ mod log;
 mod metrics;
 mod osd;
 mod overlay;
+mod pawnio;
 mod rtss;
 mod theme;
 mod tray;
@@ -26,6 +27,12 @@ use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, MB_ICONERROR, MB_OK, 
 use windows::core::{HSTRING, w};
 
 fn main() {
+    // `--pawnio <op>`: the short-lived elevated copy that installs, pauses or removes the
+    // temperature driver when the user asks for it in settings. It does that and exits.
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(i) = args.iter().position(|a| a == "--pawnio") {
+        std::process::exit(pawnio::helper(args.get(i + 1).map_or("", String::as_str)));
+    }
     unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);

@@ -1,6 +1,6 @@
 [package]
 name = "delta"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Open-source, themeable performance overlay for Windows games and apps"
@@ -20,6 +20,7 @@ windows-numerics = "0.3"
 version = "0.62"
 features = [
     "Win32_Foundation",
+    "Win32_Devices_DeviceAndDriverInstallation",
     "Win32_Security",
     "Win32_Security_Authorization",
     "Win32_Security_Cryptography",
@@ -30,6 +31,7 @@ features = [
     "Win32_System_Variant",
     "Win32_System_Diagnostics_Etw",
     "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_IO",
     "Win32_System_LibraryLoader",
     "Win32_System_Memory",
     "Win32_System_Performance",

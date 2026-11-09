@@ -9,7 +9,7 @@ use crate::theme::{self, Layout, Theme};
 use crate::tray::{self, Entry, Tray};
 use crate::ui::Settings;
 use crate::ui::pages::{Action, RtssState, Status, ThemeInfo};
-use crate::{hotkey, log, osd, rtss, ui, update};
+use crate::{hotkey, log, osd, pawnio, rtss, ui, update};
 use std::collections::HashSet;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -40,6 +40,8 @@ const CMD_CHECK_UPDATE: u32 = 505;
 const CMD_RESTART_UPDATE: u32 = 506;
 /// A background update check finished.
 const WM_UPDATE_DONE: u32 = WM_APP + 3;
+/// A driver job (install, pause, resume, uninstall) finished.
+const WM_DRIVER_DONE: u32 = WM_APP + 4;
 /// Sent by a second copy of Delta (or `--settings`) to open the settings window.
 pub const WM_OPEN_SETTINGS: u32 = WM_APP + 2;
 const CMD_LAYOUT: u32 = 600;
@@ -88,6 +90,8 @@ pub struct App {
     next_update_check: Instant,
     /// The user asked for this check (tell them how it went).
     update_manual: bool,
+    /// The CPU temperature driver job in progress, or how the last one went.
+    driver: std::sync::Arc<std::sync::Mutex<pawnio::Job>>,
 }
 
 /// Is a Direct3D app running in exclusive fullscreen right now?
@@ -126,6 +130,7 @@ impl App {
             }
         };
         let sampler = Sampler::start(cfg.poll_ms, cfg.history, cfg.gpu_index);
+        *sampler.graphed_cores.lock().unwrap() = metrics::graphed_cores(&cfg.rows);
         let gfx = Rc::new(Gfx::new().map_err(|e| format!("couldn't start graphics: {e}"))?);
         let tray = Tray::new(hwnd);
         let mut app = App {
@@ -167,6 +172,7 @@ impl App {
             update: std::sync::Arc::new(std::sync::Mutex::new(update::State::Idle)),
             next_update_check: Instant::now() + Duration::from_secs(30),
             update_manual: false,
+            driver: std::sync::Arc::new(std::sync::Mutex::new(pawnio::Job::Idle)),
         };
         update::cleanup();
         let mut errors: Vec<String> = cfg_err.into_iter().chain(theme_err).collect();
@@ -217,6 +223,7 @@ impl App {
     fn apply(&mut self, cfg: Config, mut errors: Vec<String>, theme_files: bool) {
         self.sampler.poll_ms.store(cfg.poll_ms, Ordering::Relaxed);
         self.sampler.history.store(cfg.history as u32, Ordering::Relaxed);
+        *self.sampler.graphed_cores.lock().unwrap() = metrics::graphed_cores(&cfg.rows);
         let theme_changed = theme_files || !cfg.theme.eq_ignore_ascii_case(&self.cfg.theme);
         let hotkeys_changed = theme_files || cfg.hotkeys.toggle != self.cfg.hotkeys.toggle || cfg.hotkeys.cycle_theme != self.cfg.hotkeys.cycle_theme || cfg.hotkeys.cycle_position != self.cfg.hotkeys.cycle_position;
         self.cfg = cfg;
@@ -787,6 +794,59 @@ impl App {
         }
     }
 
+    // ------------------------------------------------ CPU temperature driver
+
+    /// Installs, pauses, resumes or removes the driver in the background. Windows asks the user first.
+    fn driver_job(&mut self, op: pawnio::Op) {
+        {
+            let mut job = self.driver.lock().unwrap();
+            if matches!(*job, pawnio::Job::Running(_)) {
+                return;
+            }
+            *job = pawnio::Job::Running(op);
+        }
+        log!("driver: {op:?} requested");
+        let state = self.driver.clone();
+        let hwnd = self.hwnd.0 as isize;
+        std::thread::spawn(move || {
+            let result = pawnio::run(op);
+            *state.lock().unwrap() = pawnio::Job::Done(op, result);
+            unsafe {
+                let _ = PostMessageW(Some(HWND(hwnd as *mut _)), WM_DRIVER_DONE, WPARAM(0), LPARAM(0));
+            }
+        });
+    }
+
+    fn driver_done(&mut self) {
+        let job = self.driver.lock().unwrap().clone();
+        if let pawnio::Job::Done(op, result) = &job {
+            log!("driver: {op:?} -> {result:?}");
+            if *op == pawnio::Op::Install && result.is_ok() {
+                self.show_cpu_temp();
+            }
+        }
+        if let Some(s) = &mut self.settings {
+            s.needs_redraw = true;
+        }
+    }
+
+    /// Puts the CPU temperature on the overlay (next to CPU usage) if no row has it yet:
+    /// someone who just installed the driver for it wants to see it.
+    fn show_cpu_temp(&mut self) {
+        if self.cfg.rows.iter().any(|r| r.metrics.iter().any(|m| m == "cpu.temp")) {
+            return;
+        }
+        let mut cfg = self.cfg.clone();
+        let Some(row) = cfg.rows.iter_mut().find(|r| r.metrics.iter().any(|m| m == "cpu.usage")) else { return };
+        let at = row.metrics.iter().position(|m| m == "cpu.usage").map_or(0, |i| i + 1);
+        row.metrics.insert(at, "cpu.temp".into());
+        if let Some(s) = &mut self.settings {
+            s.cfg = cfg.clone();
+        }
+        self.apply(cfg, vec![], false);
+        self.save_at = Some(Instant::now());
+    }
+
     // ------------------------------------------------ settings window
 
     fn open_settings(&mut self) {
@@ -852,6 +912,12 @@ impl App {
         if self.settings.is_none() {
             return;
         }
+        let (cpu_temp, cpu_temp_now) = self
+            .sampler
+            .shared
+            .lock()
+            .map(|s| (s.cpu_temp.clone(), s.values.get("cpu.temp").map(|v| metrics::format("cpu.temp", *v, self.cfg.temperature))))
+            .unwrap_or_default();
         let status = Status {
             visible: self.visible,
             elevated: self.elevated,
@@ -876,6 +942,10 @@ impl App {
             exclusive_note: self.exclusive_note.clone(),
             diag: self.diag.clone(),
             update: self.update_status(),
+            cpu_temp,
+            cpu_temp_now: cpu_temp_now.map(|c| format!("{} {}", c.value, c.unit)),
+            driver: self.driver.lock().unwrap().clone(),
+            driver_version: pawnio::installed_version(),
         };
         let apps = self.running_apps();
         let mut frame = self.last_frame.clone();
@@ -903,6 +973,7 @@ impl App {
                 Action::OpenUrl(url) => open(&url),
                 Action::CheckUpdates => self.check_updates(true),
                 Action::RestartUpdate => self.restart_to_update(),
+                Action::Driver(op) => self.driver_job(op),
                 Action::StartRtss => {
                     if let Some(p) = rtss::installed() {
                         open(&p.to_string_lossy());
@@ -1014,6 +1085,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         }
         WM_OPEN_SETTINGS => with_app(|a| a.open_settings()),
         WM_UPDATE_DONE => with_app(|a| a.update_done()),
+        WM_DRIVER_DONE => with_app(|a| a.driver_done()),
         m if m == taskbar && m != 0 => with_app(|a| a.tray.add()),
         WM_DESTROY => unsafe { PostQuitMessage(0) },
         _ => return unsafe { DefWindowProcW(hwnd, msg, wp, lp) },

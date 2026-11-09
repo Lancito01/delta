@@ -346,11 +346,8 @@ impl Config {
         self.refresh_hz = self.refresh_hz.clamp(1, 144);
         self.history = self.history.clamp(4, 1000);
         self.frametime_samples = self.frametime_samples.clamp(16, 2000);
-        self.thresholds.remove("cpu.temp");
-        for row in &mut self.rows {
-            row.metrics.retain(|metric| metric != "cpu.temp");
-            row.graph.retain(|metric| metric != "cpu.temp");
-        }
+        // Versions that couldn't read the CPU temperature removed its colors from saved settings.
+        self.thresholds.entry("cpu.temp".into()).or_insert([85.0, 95.0]);
     }
 }
 

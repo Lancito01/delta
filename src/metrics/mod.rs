@@ -1,5 +1,6 @@
 //! Sensor sampling, history and formatting.
 
+pub mod cputemp;
 pub mod frames;
 pub mod nvml;
 pub mod pdh;
@@ -21,6 +22,8 @@ pub struct Sample {
     pub gpu_name: String,
     pub cpu_name: String,
     pub gpu_source: &'static str,
+    /// Whether the CPU temperature can be read, and why not.
+    pub cpu_temp: cputemp::Status,
     /// Bumped on every sensor read, so the UI knows when there's something new to draw.
     pub generation: u64,
 }
@@ -29,6 +32,9 @@ pub struct Sampler {
     pub shared: Arc<Mutex<Sample>>,
     pub poll_ms: Arc<AtomicU32>,
     pub history: Arc<AtomicU32>,
+    /// Per-core metrics (`cpu.core.N`, `cpu.core_clock.N`) some row graphs. Only these get a
+    /// history; keeping one for every core of every machine would be copied on each redraw.
+    pub graphed_cores: Arc<Mutex<Vec<String>>>,
 }
 
 impl Sampler {
@@ -36,21 +42,24 @@ impl Sampler {
         let shared = Arc::new(Mutex::new(Sample::default()));
         let poll = Arc::new(AtomicU32::new(poll_ms));
         let hist = Arc::new(AtomicU32::new(history as u32));
-        let (s, p, h) = (shared.clone(), poll.clone(), hist.clone());
+        let graphed_cores = Arc::new(Mutex::new(Vec::new()));
+        let (s, p, h, g) = (shared.clone(), poll.clone(), hist.clone(), graphed_cores.clone());
         std::thread::Builder::new()
             .name("sampler".into())
-            .spawn(move || run(s, p, h, gpu_index))
+            .spawn(move || run(s, p, h, g, gpu_index))
             .expect("sampler thread");
-        Sampler { shared, poll_ms: poll, history: hist }
+        Sampler { shared, poll_ms: poll, history: hist, graphed_cores }
     }
 }
 
-fn run(shared: Arc<Mutex<Sample>>, poll: Arc<AtomicU32>, hist: Arc<AtomicU32>, gpu_index: u32) {
+fn run(shared: Arc<Mutex<Sample>>, poll: Arc<AtomicU32>, hist: Arc<AtomicU32>, graphed_cores: Arc<Mutex<Vec<String>>>, gpu_index: u32) {
     let nvml = nvml::Nvml::load(gpu_index);
     let counters = pdh::Counters::new(nvml.is_none());
+    let cpu_name = system::cpu_name();
+    let mut cpu_temp = cputemp::Reader::new(&cpu_name);
     {
         let mut s = shared.lock().unwrap();
-        s.cpu_name = system::cpu_name();
+        s.cpu_name = cpu_name;
         s.gpu_name = nvml.as_ref().map(|n| n.name.clone()).unwrap_or_else(|| "GPU".into());
         s.gpu_source = if nvml.is_some() { "NVML" } else { "Windows counters" };
     }
@@ -107,14 +116,18 @@ fn run(shared: Arc<Mutex<Sample>>, poll: Arc<AtomicU32>, hist: Arc<AtomicU32>, g
             put("ram.total", Some(m.total_gb));
             put("ram.pct", Some(m.pct));
         }
+        let (temp, temp_status) = cpu_temp.read();
+        put("cpu.temp", temp);
         let fg = system::foreground();
         put("app.ram", system::process_ram_gb(fg.pid));
 
         {
+            let wanted = graphed_cores.lock().unwrap().clone();
             let mut s = shared.lock().unwrap();
             let cap = hist.load(Ordering::Relaxed) as usize;
+            s.history.retain(|k, _| !k.starts_with("cpu.core") || wanted.contains(k));
             for (k, x) in &v {
-                if k.starts_with("cpu.core") {
+                if k.starts_with("cpu.core") && !wanted.contains(k) {
                     continue;
                 }
                 let h = s.history.entry(k.clone()).or_default();
@@ -126,6 +139,7 @@ fn run(shared: Arc<Mutex<Sample>>, poll: Arc<AtomicU32>, hist: Arc<AtomicU32>, g
             s.values = v;
             s.cores = cores;
             s.core_clocks = core_clocks;
+            s.cpu_temp = temp_status;
             s.app = fg.exe.trim_end_matches(".exe").to_string();
             s.generation = s.generation.wrapping_add(1);
         }
@@ -150,6 +164,7 @@ pub const CATALOG: &[(&str, &str, &str, &str)] = &[
     ("gpu.vram", "VRAM used", "Graphics card", "Video memory in use"),
     ("gpu.vram_pct", "VRAM %", "Graphics card", "Video memory in use, in percent"),
     ("cpu.usage", "CPU usage", "Processor", "Total processor load"),
+    ("cpu.temp", "CPU temperature", "Processor", "Package temperature (set it up on the Overview page)"),
     ("cpu.clock", "CPU clock", "Processor", "Average effective clock speed"),
     ("cpu.cores", "Per-core load", "Processor", "A small bar for every core"),
     ("ram.used", "RAM used", "Memory", "System memory in use"),
@@ -164,6 +179,20 @@ pub const CATALOG: &[(&str, &str, &str, &str)] = &[
     ("app", "App name", "Other", "Name of the app in front"),
     ("time", "Clock", "Other", "The current time"),
 ];
+
+/// The per-core metrics a config graphs (see `Sampler::graphed_cores`).
+pub fn graphed_cores(rows: &[crate::config::Row]) -> Vec<String> {
+    let mut ids: Vec<String> = vec![];
+    for row in rows.iter().filter(|r| r.display != crate::config::Display::Text) {
+        let fallback = if row.graph.is_empty() { row.metrics.first() } else { None };
+        for id in row.graph.iter().chain(fallback) {
+            if id.starts_with("cpu.core") && !ids.contains(id) {
+                ids.push(id.clone());
+            }
+        }
+    }
+    ids
+}
 
 pub fn display_name(id: &str) -> String {
     if let Some((_, n, _, _)) = CATALOG.iter().find(|(i, ..)| *i == id) {
