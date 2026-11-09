@@ -99,7 +99,8 @@ pub fn monitors() -> Vec<MonitorInfo> {
     list.into_iter().map(info).collect()
 }
 
-/// The lowest visible always-on-top window of these apps (exe names), if any are open.
+/// The lowest visible always-on-top window of these apps (exe names) that is still in the
+/// always-on-top band, if any are open.
 pub fn lowest_topmost_of(apps: &[String]) -> Option<HWND> {
     if apps.is_empty() {
         return None;
@@ -112,7 +113,16 @@ pub fn lowest_topmost_of(apps: &[String]) -> Option<HWND> {
         unsafe {
             let f = &mut *(data.0 as *mut Find);
             let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
-            if IsWindowVisible(hwnd).as_bool() && ex & WS_EX_TOPMOST.0 != 0 {
+            if !IsWindowVisible(hwnd).as_bool() {
+                return true.into();
+            }
+            // The first ordinary window ends the always-on-top band. A window can keep the
+            // topmost flag while sitting lower than that (Hitodama has one); settling under it
+            // would put the overlay below every normal app.
+            if ex & WS_EX_TOPMOST.0 == 0 {
+                return false.into();
+            }
+            {
                 let mut pid = 0u32;
                 GetWindowThreadProcessId(hwnd, Some(&mut pid));
                 if pid != std::process::id() {
